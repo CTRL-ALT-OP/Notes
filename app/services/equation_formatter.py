@@ -1,6 +1,7 @@
 from __future__ import annotations
 import ast
 import math
+import re
 import tkinter as tk
 from typing import Optional
 
@@ -39,6 +40,8 @@ class EquationAutoFormatter:
 
             # Optional: allow caret '^' as power by translating to Python '**'
             sanitized_expr = expr.replace("^", "**")
+            # Allow 'x'/'X' (and '×') as a multiplication alias
+            sanitized_expr = self._normalize_multiplication_x(sanitized_expr)
 
             value = self._safe_eval_expression(sanitized_expr)
             if value is None:
@@ -104,3 +107,16 @@ class EquationAutoFormatter:
         if "." in s:
             s = s.rstrip("0").rstrip(".")
         return s
+
+    def _normalize_multiplication_x(self, expression: str) -> str:
+        """Replace 'x'/'X'/'×' used as a multiplication operator with '*'.
+
+        We only replace when it appears between a left operand (digit or ')')
+        and a right operand (digit or '('), optionally with spaces.
+        """
+        try:
+            return re.sub(
+                r"(?:(?<=\d)|(?<=\)))[\t ]*[xX×][\t ]*(?=(?:\d|\())", "*", expression
+            )
+        except Exception:
+            return expression
