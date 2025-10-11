@@ -21,7 +21,6 @@ class LinkHandler:
         self.launcher = launcher or DetachedProcessLauncher()
 
     def open_link(self, link: str) -> None:
-        print(f"Opening link from home: {link}")
         link = link.strip()
         if not link:
             return
@@ -68,7 +67,6 @@ class LinkHandler:
                 pass
 
         if path.suffix.lower() == ".py":
-            print(f"Running Python file in terminal: {path}")
             self._run_python_file_in_terminal(path)
             return
 
@@ -87,62 +85,9 @@ class LinkHandler:
 
     def _run_python_file_in_terminal(self, path: Path) -> None:
         try:
-            if sys.platform == "win32":
-                # Launch a new PowerShell console that remains open after the script runs.
-                # Using PowerShell avoids complex nested cmd quoting issues.
-                py = sys.executable or "python"
-                ps = (
-                    Path(os.environ.get("SystemRoot", r"C:\\Windows"))
-                    / "System32"
-                    / "WindowsPowerShell"
-                    / "v1.0"
-                    / "powershell.exe"
-                )
-                ps_str = str(ps)
-                ps_command = f'& "{py}" "{str(path)}"'
-                command = [
-                    ps_str,
-                    "-NoExit",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    ps_command,
-                ]
-                self.launcher.launch(command, cwd=path.parent)
-                return
-
-            if sys.platform == "darwin":
-                # Open Terminal.app and run; keep open on completion
-                script = f"python {shlex.quote(str(path))}; echo; read -n 1 -s -r -p 'Press any key to close'"
-                self.launcher.launch(
-                    [
-                        "osascript",
-                        "-e",
-                        f'tell application "Terminal" to do script "{script}"',
-                    ]
-                )
-                return
-
-            # Linux: try gnome-terminal, then xterm fallback
-            script_cmd = f"python {shlex.quote(str(path))}; echo; read -n 1 -s -r -p 'Press any key to close'"
-            if self._command_exists("gnome-terminal"):
-                self.launcher.launch(
-                    ["gnome-terminal", "--", "bash", "-lc", script_cmd], cwd=path.parent
-                )
-            elif self._command_exists("xterm"):
-                self.launcher.launch(
-                    ["xterm", "-e", f"bash -lc {shlex.quote(script_cmd)}"],
-                    cwd=path.parent,
-                )
-            else:
-                # Fallback: run detached in background without terminal
-                self.launcher.launch([sys.executable, str(path)], cwd=path.parent)
+            py = sys.executable or "python"
+            self.launcher.launch_in_terminal(
+                [py, str(path)], cwd=path.parent, keep_open=True
+            )
         except Exception:
             pass
-
-    def _command_exists(self, name: str) -> bool:
-        for p in os.environ.get("PATH", "").split(os.pathsep):
-            candidate = Path(p) / name
-            if candidate.exists() and os.access(candidate, os.X_OK):
-                return True
-        return False
