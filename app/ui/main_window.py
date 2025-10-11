@@ -349,7 +349,7 @@ class MainWindow(tk.Tk):
 
         # Editor area
         editor_frame = tk.Frame(self.body, bg=self.theme.background)
-        editor_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        editor_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(8, 0))
         self.text_widget = tk.Text(
             editor_frame,
             wrap=tk.WORD,
