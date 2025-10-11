@@ -3,6 +3,7 @@ import re
 import tkinter as tk
 import tkinter.font as tkfont
 from typing import List, Tuple
+from app.ui.theme import ThemeColors, DARK_THEME
 
 
 class MarkdownHighlighter:
@@ -13,8 +14,11 @@ class MarkdownHighlighter:
     inline code, fenced code blocks, blockquotes, lists, and links.
     """
 
-    def __init__(self, debounce_ms: int = 120) -> None:
+    def __init__(
+        self, debounce_ms: int = 120, theme: ThemeColors | None = None
+    ) -> None:
         self.debounce_ms = debounce_ms
+        self.theme: ThemeColors = theme or DARK_THEME
         self._configured_widget_id: int | None = None
 
         # Precompile patterns
@@ -82,21 +86,33 @@ class MarkdownHighlighter:
 
         # Headings
         text.tag_config(
-            "md_h1", font=mk_font(weight="bold", size_delta=8), foreground="#2b6cb0"
+            "md_h1",
+            font=mk_font(weight="bold", size_delta=8),
+            foreground=self.theme.heading_fg,
         )
         text.tag_config(
-            "md_h2", font=mk_font(weight="bold", size_delta=6), foreground="#2b6cb0"
+            "md_h2",
+            font=mk_font(weight="bold", size_delta=6),
+            foreground=self.theme.heading_fg,
         )
         text.tag_config(
-            "md_h3", font=mk_font(weight="bold", size_delta=4), foreground="#2b6cb0"
+            "md_h3",
+            font=mk_font(weight="bold", size_delta=4),
+            foreground=self.theme.heading_fg,
         )
         text.tag_config(
-            "md_h4", font=mk_font(weight="bold", size_delta=2), foreground="#2b6cb0"
+            "md_h4",
+            font=mk_font(weight="bold", size_delta=2),
+            foreground=self.theme.heading_fg,
         )
         text.tag_config(
-            "md_h5", font=mk_font(weight="bold", size_delta=1), foreground="#2b6cb0"
+            "md_h5",
+            font=mk_font(weight="bold", size_delta=1),
+            foreground=self.theme.heading_fg,
         )
-        text.tag_config("md_h6", font=mk_font(weight="bold"), foreground="#2b6cb0")
+        text.tag_config(
+            "md_h6", font=mk_font(weight="bold"), foreground=self.theme.heading_fg
+        )
 
         # Emphasis
         text.tag_config("md_bold", font=mk_font(weight="bold"))
@@ -108,12 +124,12 @@ class MarkdownHighlighter:
         code_font_family = "Consolas"
         text.tag_config(
             "md_inline_code",
-            background="#f6f8fa",
+            background=self.theme.inline_code_bg,
             font=mk_font(family=code_font_family),
         )
         text.tag_config(
             "md_code_block",
-            background="#f6f8fa",
+            background=self.theme.code_block_bg,
             lmargin1=20,
             lmargin2=20,
             spacing1=4,
@@ -122,12 +138,19 @@ class MarkdownHighlighter:
         )
 
         # Block elements
-        text.tag_config("md_blockquote", foreground="#6a737d", lmargin1=20, lmargin2=20)
-        text.tag_config("md_list_item", foreground="#374151")
+        text.tag_config(
+            "md_blockquote",
+            foreground=self.theme.blockquote_fg,
+            lmargin1=20,
+            lmargin2=20,
+        )
+        text.tag_config("md_list_item", foreground=self.theme.list_item_fg)
 
         # Links
-        text.tag_config("md_link_text", foreground="#1a73e8", underline=True)
-        text.tag_config("md_link_url", foreground="#6a737d")
+        text.tag_config(
+            "md_link_text", foreground=self.theme.link_text_fg, underline=True
+        )
+        text.tag_config("md_link_url", foreground=self.theme.link_url_fg)
 
         self._configured_widget_id = id(text)
 

@@ -7,20 +7,34 @@ from typing import Optional
 from app.models.note import Note
 from app.services.file_service import FileService
 from app.services.markdown_highlighter import MarkdownHighlighter
+from app.ui.theme import (
+    DARK_THEME,
+    ThemeColors,
+    apply_theme_to_root,
+    apply_windows_dark_title_bar,
+)
 
 
 class MainWindow(tk.Tk):
     """Main application window with a minimal editor and Save/Open actions."""
 
-    def __init__(self, file_service: FileService) -> None:
+    def __init__(
+        self, file_service: FileService, theme: ThemeColors = DARK_THEME
+    ) -> None:
         super().__init__()
         self.title("Markdown Notes")
         self.geometry("900x600")
 
         self.file_service = file_service
         self.current_note: Optional[Note] = Note(title="Untitled", body="")
-        self.highlighter = MarkdownHighlighter(debounce_ms=20)
+        self.theme = theme
+        self.highlighter = MarkdownHighlighter(debounce_ms=20, theme=self.theme)
         self._highlight_after_id: Optional[str] = None
+        self._dropdown: Optional[tk.Toplevel] = None
+
+        # Apply theme to the root and attempt Windows dark title bar
+        apply_theme_to_root(self, self.theme)
+        apply_windows_dark_title_bar(self)
 
         self._build_menu()
         self._build_editor()
@@ -30,17 +44,135 @@ class MainWindow(tk.Tk):
         self.text_widget.focus_set()
 
     def _build_menu(self) -> None:
-        menu_bar = tk.Menu(self)
+        # Custom dark menu bar using a Frame + faux button that opens a custom dropdown
+        self.menu_frame = tk.Frame(
+            self, bg=self.theme.menubar_bg, height=30, highlightthickness=0, bd=0
+        )
+        self.menu_frame.pack(side=tk.TOP, fill=tk.X)
 
-        file_menu = tk.Menu(menu_bar, tearoff=0)
-        file_menu.add_command(label="Open...", command=self.on_open)
-        file_menu.add_command(label="Save", command=self.on_save)
+        self.file_btn = tk.Label(
+            self.menu_frame,
+            text="File",
+            bg=self.theme.menubar_bg,
+            fg=self.theme.menubar_fg,
+            padx=8,
+            pady=4,
+        )
+        self.file_btn.pack(side=tk.LEFT)
+        self.file_btn.bind("<Button-1>", self._open_file_dropdown)
+        self.file_btn.bind(
+            "<Enter>", lambda e: self.file_btn.configure(bg=self.theme.menu_active_bg)
+        )
+        self.file_btn.bind(
+            "<Leave>", lambda e: self.file_btn.configure(bg=self.theme.menubar_bg)
+        )
 
-        menu_bar.add_cascade(label="File", menu=file_menu)
-        self.config(menu=menu_bar)
+        # Global click to dismiss dropdown if open
+        self.bind("<Button-1>", self._on_global_click, add=True)
+
+    def _open_file_dropdown(self, _event=None) -> None:
+        # Toggle behavior
+        if self._dropdown is not None and self._dropdown.winfo_exists():
+            self._close_dropdown()
+            return
+
+        # Create borderless dropdown
+        self._dropdown = tk.Toplevel(self)
+        self._dropdown.overrideredirect(True)
+        self._dropdown.configure(bg=self.theme.menubar_bg, highlightthickness=0, bd=0)
+
+        # Position below the File button
+        bx = self.file_btn.winfo_rootx()
+        by = self.file_btn.winfo_rooty() + self.file_btn.winfo_height()
+        self._dropdown.wm_geometry(f"200x80+{bx}+{by}")
+
+        # Build menu items
+        container = tk.Frame(
+            self._dropdown, bg=self.theme.menubar_bg, bd=0, highlightthickness=0
+        )
+        container.pack(fill=tk.BOTH, expand=True)
+
+        self._add_dropdown_item(container, "Open...", self.on_open)
+        self._add_dropdown_item(container, "Save", self.on_save)
+
+        # Esc closes
+        self._dropdown.bind("<Escape>", lambda e: self._close_dropdown())
+        try:
+            self._dropdown.focus_force()
+        except Exception:
+            pass
+
+    def _add_dropdown_item(self, parent: tk.Misc, label: str, command) -> None:
+        item = tk.Frame(parent, bg=self.theme.menubar_bg, height=28)
+        item.pack(fill=tk.X)
+        txt = tk.Label(
+            item,
+            text=label,
+            bg=self.theme.menubar_bg,
+            fg=self.theme.menubar_fg,
+            anchor="w",
+            padx=10,
+        )
+        txt.pack(fill=tk.X)
+
+        def on_click(_e=None):
+            self._close_dropdown()
+            command()
+
+        item.bind("<Button-1>", on_click)
+        txt.bind("<Button-1>", on_click)
+        item.bind(
+            "<Enter>",
+            lambda e: (
+                item.configure(bg=self.theme.menu_active_bg),
+                txt.configure(bg=self.theme.menu_active_bg),
+            ),
+        )
+        item.bind(
+            "<Leave>",
+            lambda e: (
+                item.configure(bg=self.theme.menubar_bg),
+                txt.configure(bg=self.theme.menubar_bg),
+            ),
+        )
+
+    def _close_dropdown(self) -> None:
+        if self._dropdown is not None:
+            try:
+                self._dropdown.destroy()
+            except Exception:
+                pass
+            self._dropdown = None
+
+    def _on_global_click(self, event) -> None:
+        # Close if clicking outside the dropdown and outside the File button
+        if self._dropdown is None:
+            return
+        widget = self.winfo_containing(event.x_root, event.y_root)
+        if widget is None:
+            self._close_dropdown()
+            return
+        if widget is self._dropdown or str(widget).startswith(str(self._dropdown)):
+            return
+        if widget is self.file_btn or str(widget).startswith(str(self.file_btn)):
+            return
+        self._close_dropdown()
 
     def _build_editor(self) -> None:
-        self.text_widget = tk.Text(self, wrap=tk.WORD, undo=True)
+        # Apply window background
+        self.configure(bg=self.theme.background)
+        self.text_widget = tk.Text(
+            self,
+            wrap=tk.WORD,
+            undo=True,
+            bg=self.theme.background,
+            fg=self.theme.foreground,
+            insertbackground=self.theme.caret,
+            selectbackground=self.theme.selection_bg,
+            selectforeground=self.theme.selection_fg,
+            highlightthickness=0,
+            borderwidth=0,
+        )
         self.text_widget.pack(fill=tk.BOTH, expand=True)
         self.text_widget.insert("1.0", self.current_note.body)
 
