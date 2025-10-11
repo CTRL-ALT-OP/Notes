@@ -47,12 +47,12 @@ class EquationAutoFormatter:
             if value is None:
                 return
 
-            formatted = self._format_result(value)
-            if not formatted:
+            if formatted := self._format_result(value):
+                # Insert at the current cursor position (right after '=')
+                text.insert("insert", formatted)
+            else:
                 return
 
-            # Insert at the current cursor position (right after '=')
-            text.insert("insert", formatted)
         except Exception:
             # Do not disrupt typing on any error
             return

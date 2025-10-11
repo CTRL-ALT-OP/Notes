@@ -1,4 +1,5 @@
 from __future__ import annotations
+import contextlib
 from dataclasses import dataclass
 import sys
 from ctypes import byref, sizeof, c_int
@@ -46,6 +47,7 @@ class ThemeColors:
 
 
 # Slightly muted dark theme
+# Slightly muted dark theme
 DARK_THEME = ThemeColors(
     background="#111827",  # gray-900
     foreground="#e5e7eb",  # gray-200
@@ -83,7 +85,7 @@ def apply_theme_to_root(root: Any, theme: ThemeColors) -> None:
 
     Uses option database for menus so popups and cascades inherit dark colors.
     """
-    try:
+    with contextlib.suppress(Exception):
         root.configure(bg=theme.background)
         # Menu defaults
         root.option_add("*Menu.background", theme.menubar_bg)
@@ -91,9 +93,6 @@ def apply_theme_to_root(root: Any, theme: ThemeColors) -> None:
         root.option_add("*Menu.activeBackground", theme.menu_active_bg)
         root.option_add("*Menu.activeForeground", theme.menu_active_fg)
         root.option_add("*Menu.relief", "flat")
-    except Exception:
-        # Best-effort; on some platforms option db keys may vary
-        pass
 
 
 def apply_windows_dark_title_bar(root: Any) -> None:
@@ -103,12 +102,11 @@ def apply_windows_dark_title_bar(root: Any) -> None:
     """
     if sys.platform != "win32":
         return
-    try:
+    with contextlib.suppress(Exception):
         from ctypes import windll  # type: ignore
 
         hwnd = root.winfo_id()
         DWMWA_USE_IMMERSIVE_DARK_MODE = 20
-        DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
         value = c_int(1)
 
         # Try modern attribute first
@@ -119,6 +117,7 @@ def apply_windows_dark_title_bar(root: Any) -> None:
             sizeof(value),
         )
         if hr != 0:
+            DWMWA_USE_IMMERSIVE_DARK_MODE_BEFORE_20H1 = 19
             # Fall back to older attribute id
             windll.dwmapi.DwmSetWindowAttribute(
                 c_int(hwnd),
@@ -126,6 +125,3 @@ def apply_windows_dark_title_bar(root: Any) -> None:
                 byref(value),
                 sizeof(value),
             )
-    except Exception:
-        # Ignore if not supported
-        pass

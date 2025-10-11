@@ -64,27 +64,7 @@ class DetachedProcessLauncher:
         element is the executable followed by its arguments.
         """
         if sys.platform == "win32":
-            py_shell = (
-                Path(os.environ.get("SystemRoot", r"C:\\Windows"))
-                / "System32"
-                / "WindowsPowerShell"
-                / "v1.0"
-                / "powershell.exe"
-            )
-            ps = str(py_shell)
-            # & "exe" "arg1" "arg2"
-            ps_command = "& " + " ".join(f'"{part}"' for part in command)
-            args = [ps]
-            if keep_open:
-                args.append("-NoExit")
-            args += [
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                ps_command,
-            ]
-            return self.launch(args, cwd=cwd)
-
+            return self.windows_powershell(command, keep_open, cwd)
         # Build a bash/zsh-compatible script line
         script_cmd = " ".join(shlex.quote(part) for part in command)
         if keep_open:
@@ -113,3 +93,25 @@ class DetachedProcessLauncher:
 
         # Fallback: run detached without opening a terminal
         return self.launch(list(command), cwd=cwd)
+
+    def windows_powershell(self, command, keep_open, cwd):
+        py_shell = (
+            Path(os.environ.get("SystemRoot", r"C:\\Windows"))
+            / "System32"
+            / "WindowsPowerShell"
+            / "v1.0"
+            / "powershell.exe"
+        )
+        ps = str(py_shell)
+        # & "exe" "arg1" "arg2"
+        ps_command = "& " + " ".join(f'"{part}"' for part in command)
+        args = [ps]
+        if keep_open:
+            args.append("-NoExit")
+        args += [
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            ps_command,
+        ]
+        return self.launch(args, cwd=cwd)

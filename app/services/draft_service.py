@@ -1,4 +1,5 @@
 from __future__ import annotations
+import contextlib
 import os
 from pathlib import Path
 from typing import Optional
@@ -45,20 +46,15 @@ class DraftService:
         # Fallback: if all slots are taken, use the last one non-exclusively
         # (very unlikely in typical usage). This ensures the app can still run.
         last_lock = self._lock_path(self.max_instances)
-        try:
+        with contextlib.suppress(Exception):
             with last_lock.open("a", encoding="utf-8") as f:
                 f.write(f"\n{pid_str}")
-        except Exception:
-            pass
         return self.max_instances
 
     def release_instance_index(self, index: int) -> None:
         """Release the lock for the given instance index if present."""
-        try:
+        with contextlib.suppress(Exception):
             self._lock_path(index).unlink(missing_ok=True)
-        except Exception:
-            # Best-effort; ignore errors
-            pass
 
     def load_draft(self, index: int, encoding: str = "utf-8") -> str:
         path = self._draft_path(index)
@@ -76,7 +72,5 @@ class DraftService:
         return path
 
     def clear_draft(self, index: int) -> None:
-        try:
+        with contextlib.suppress(Exception):
             self._draft_path(index).unlink(missing_ok=True)
-        except Exception:
-            pass

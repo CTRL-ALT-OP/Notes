@@ -1,4 +1,5 @@
 from __future__ import annotations
+import contextlib
 import json
 import subprocess
 import sys
@@ -71,12 +72,8 @@ class CodeRunner:
                         str(result_path),
                     ]
 
-                creationflags = 0
                 startupinfo = None
-                if sys.platform == "win32":
-                    # CREATE_NO_WINDOW to avoid flashing a console or new window
-                    creationflags = 0x08000000  # CREATE_NO_WINDOW
-
+                creationflags = 0x08000000 if sys.platform == "win32" else 0
                 completed = subprocess.run(
                     cmd,
                     cwd=str(cwd) if cwd else None,
@@ -118,12 +115,8 @@ class CodeRunner:
         except Exception as exc:
             return 1, "", f"[Runner error] {exc}"
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 code_path.unlink(missing_ok=True)  # type: ignore[arg-type]
-            except Exception:
-                pass
             if result_path is not None:
-                try:
+                with contextlib.suppress(Exception):
                     result_path.unlink(missing_ok=True)  # type: ignore[arg-type]
-                except Exception:
-                    pass

@@ -1,8 +1,7 @@
-from __future__ import annotations
+import contextlib
 import os
 import sys
 import webbrowser
-import shlex
 from pathlib import Path
 from typing import Optional
 
@@ -41,11 +40,8 @@ class LinkHandler:
         )
 
     def _open_url(self, url: str) -> None:
-        try:
+        with contextlib.suppress(Exception):
             webbrowser.open(url, new=2)
-        except Exception:
-            # Best effort; ignore failures
-            pass
 
     def _open_path(self, raw: str) -> None:
         # Remove surrounding quotes if user typed them in markdown
@@ -61,11 +57,8 @@ class LinkHandler:
 
         # If it's a URI-like file://, convert
         if expanded.lower().startswith("file://"):
-            try:
+            with contextlib.suppress(Exception):
                 path = Path(expanded[7:])
-            except Exception:
-                pass
-
         if path.suffix.lower() == ".py":
             self._run_python_file_in_terminal(path)
             return
@@ -73,21 +66,17 @@ class LinkHandler:
         self._open_with_default_app(path)
 
     def _open_with_default_app(self, path: Path) -> None:
-        try:
-            if sys.platform == "win32":
-                os.startfile(str(path))  # type: ignore[attr-defined]
-            elif sys.platform == "darwin":
+        with contextlib.suppress(Exception):
+            if sys.platform == "darwin":
                 self.launcher.launch(["open", str(path)])
+            elif sys.platform == "win32":
+                os.startfile(str(path))  # type: ignore[attr-defined]
             else:
                 self.launcher.launch(["xdg-open", str(path)])
-        except Exception:
-            pass
 
     def _run_python_file_in_terminal(self, path: Path) -> None:
-        try:
+        with contextlib.suppress(Exception):
             py = sys.executable or "python"
             self.launcher.launch_in_terminal(
                 [py, str(path)], cwd=path.parent, keep_open=True
             )
-        except Exception:
-            pass

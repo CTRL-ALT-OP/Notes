@@ -1,4 +1,5 @@
 from __future__ import annotations
+import contextlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -71,14 +72,11 @@ class CatalogService:
                 for folder in self._folders.values()
             ],
         }
-        try:
+        with contextlib.suppress(Exception):
             self.storage_path.parent.mkdir(parents=True, exist_ok=True)
             self.storage_path.write_text(
                 json.dumps(payload, indent=2), encoding="utf-8"
             )
-        except Exception:
-            # Best-effort; ignore failures to persist
-            pass
 
     # ---------- Folder operations ----------
     def add_folder(self, name: str) -> CatalogFolder:

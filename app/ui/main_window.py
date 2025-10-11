@@ -1,4 +1,5 @@
 from __future__ import annotations
+import contextlib
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 import threading
@@ -67,25 +68,17 @@ class MainWindow(tk.Tk):
         apply_windows_dark_title_bar(self)
 
         # Load any existing draft for this instance before building the editor
-        try:
-            loaded = self.draft_service.load_draft(self.instance_index)
-            if loaded:
+        with contextlib.suppress(Exception):
+            if loaded := self.draft_service.load_draft(self.instance_index):
                 self.current_note.body = loaded
-        except Exception:
-            pass
-
         self._build_menu()
         self._build_body()
         self._build_status_bar()
         # Attach auto-formatter bindings similar to the highlighter
-        try:
+        with contextlib.suppress(Exception):
             self.eq_formatter.attach(self.text_widget)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self.list_autofill.attach(self.text_widget)
-        except Exception:
-            pass
         self._bind_live_highlighting()
 
         # Editor key aliases (e.g., Ctrl+I -> Delete)
@@ -181,10 +174,8 @@ class MainWindow(tk.Tk):
 
         # Esc closes
         self._dropdown.bind("<Escape>", lambda e: self._close_dropdown())
-        try:
+        with contextlib.suppress(Exception):
             self._dropdown.focus_force()
-        except Exception:
-            pass
 
     def _open_view_dropdown(self, _event=None) -> None:
         # Toggle behavior
@@ -209,17 +200,13 @@ class MainWindow(tk.Tk):
         container.pack(fill=tk.BOTH, expand=True)
 
         accel = " (Ctrl+B)"
-        label = (
-            "Hide Sidebar" if not self._sidebar_collapsed else "Show Sidebar"
-        ) + accel
+        label = ("Show Sidebar" if self._sidebar_collapsed else "Hide Sidebar") + accel
         self._add_dropdown_item(container, label, self._toggle_sidebar)
 
         # Esc closes
         self._dropdown.bind("<Escape>", lambda e: self._close_dropdown())
-        try:
+        with contextlib.suppress(Exception):
             self._dropdown.focus_force()
-        except Exception:
-            pass
 
     def _add_dropdown_item(self, parent: tk.Misc, label: str, command) -> None:
         item = tk.Frame(parent, bg=self.theme.menubar_bg, height=28)
@@ -257,10 +244,8 @@ class MainWindow(tk.Tk):
 
     def _close_dropdown(self) -> None:
         if self._dropdown is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self._dropdown.destroy()
-            except Exception:
-                pass
             self._dropdown = None
 
     def _on_global_click(self, event) -> None:
@@ -377,13 +362,11 @@ class MainWindow(tk.Tk):
         self._refresh_tree()
 
     def _init_tree_style(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             style = ttk.Style(self)
             # Use a theme that respects color configuration
-            try:
+            with contextlib.suppress(Exception):
                 style.theme_use("clam")
-            except Exception:
-                pass
             style.configure(
                 "Dark.Treeview",
                 background=self.theme.menubar_bg,
@@ -403,8 +386,6 @@ class MainWindow(tk.Tk):
                 bordercolor=self.theme.menubar_bg,
                 arrowcolor=self.theme.menubar_fg,
             )
-        except Exception:
-            pass
 
     def _refresh_tree(self) -> None:
         self._tree_item_to_payload.clear()
@@ -430,7 +411,7 @@ class MainWindow(tk.Tk):
     def _list_drafts(self):
         base = self.draft_service.base_dir
         results = []
-        try:
+        with contextlib.suppress(Exception):
             for p in sorted(base.glob("draft_*.md")):
                 try:
                     idx = int(p.stem.split("_")[1])
@@ -443,8 +424,6 @@ class MainWindow(tk.Tk):
                 except Exception:
                     continue
                 results.append((f"Draft #{idx}", idx))
-        except Exception:
-            pass
         return results
 
     def _build_status_bar(self) -> None:
@@ -466,10 +445,8 @@ class MainWindow(tk.Tk):
     def _toggle_sidebar(self) -> None:
         # cancel any previous animation
         if self._sidebar_anim_after_id is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.after_cancel(self._sidebar_anim_after_id)
-            except Exception:
-                pass
             self._sidebar_anim_after_id = None
         # increment token so in-flight callbacks can detect staleness
         self._sidebar_anim_token += 1
@@ -504,10 +481,8 @@ class MainWindow(tk.Tk):
         ):
             next_width = target_width
         self.sidebar.configure(width=next_width)
-        try:
+        with contextlib.suppress(Exception):
             self.sidebar.update_idletasks()
-        except Exception:
-            pass
 
         # if token provided, ensure only latest animation continues
         def _next():
@@ -530,9 +505,7 @@ class MainWindow(tk.Tk):
         if not sel:
             return None
         payload = self._tree_item_to_payload.get(sel[0], {})
-        if payload.get("type") == "folder":
-            return payload.get("id")
-        return None
+        return payload.get("id") if payload.get("type") == "folder" else None
 
     def _on_add_files(self) -> None:
         folder_id = self._get_selected_folder_id()
@@ -548,7 +521,7 @@ class MainWindow(tk.Tk):
     # Drag from file -> folder
     def _on_tree_button_press(self, event) -> None:
         item = self.tree.identify_row(event.y)
-        self._drag_item_id = item if item else None
+        self._drag_item_id = item or None
 
     def _on_tree_drag_motion(self, event) -> None:
         if not self._drag_item_id:
@@ -557,7 +530,7 @@ class MainWindow(tk.Tk):
         if src_payload.get("type") != "file":
             return
         hover = self.tree.identify_row(event.y)
-        self._drag_hover_id = hover if hover else None
+        self._drag_hover_id = hover or None
 
     def _on_tree_button_release(self, _event) -> None:
         try:
@@ -577,44 +550,40 @@ class MainWindow(tk.Tk):
 
     # ---------- Tree context menu ----------
     def _on_tree_right_click(self, event) -> None:
-        row = self.tree.identify_row(event.y)
-        if row:
-            try:
-                self.tree.selection_set(row)
-            except Exception:
-                pass
-            payload = self._tree_item_to_payload.get(row, {})
-            menu = tk.Menu(
-                self, tearoff=0, bg=self.theme.menubar_bg, fg=self.theme.menubar_fg
+        if not (row := self.tree.identify_row(event.y)):
+            return
+        with contextlib.suppress(Exception):
+            self.tree.selection_set(row)
+        payload = self._tree_item_to_payload.get(row, {})
+        menu = tk.Menu(
+            self, tearoff=0, bg=self.theme.menubar_bg, fg=self.theme.menubar_fg
+        )
+        ptype = payload.get("type")
+        if ptype == "folder":
+            fid = payload.get("id", "")
+            menu.add_command(
+                label="Rename Folder", command=lambda: self._on_rename_folder(fid)
             )
-            ptype = payload.get("type")
-            if ptype == "folder":
-                fid = payload.get("id", "")
-                menu.add_command(
-                    label="Rename Folder", command=lambda: self._on_rename_folder(fid)
-                )
-                menu.add_command(
-                    label="Delete Folder", command=lambda: self._on_delete_folder(fid)
-                )
-            elif ptype == "file":
-                fpath = payload.get("path", "")
-                menu.add_command(
-                    label="Rename File",
-                    command=lambda: self._on_rename_file(Path(fpath)),
-                )
-                menu.add_command(
-                    label="Delete File",
-                    command=lambda: self._on_delete_file(Path(fpath)),
-                )
-            else:
-                return
-            try:
-                menu.tk_popup(event.x_root, event.y_root)
-            finally:
-                try:
-                    menu.grab_release()
-                except Exception:
-                    pass
+            menu.add_command(
+                label="Delete Folder", command=lambda: self._on_delete_folder(fid)
+            )
+        elif ptype == "file":
+            fpath = payload.get("path", "")
+            menu.add_command(
+                label="Rename File",
+                command=lambda: self._on_rename_file(Path(fpath)),
+            )
+            menu.add_command(
+                label="Delete File",
+                command=lambda: self._on_delete_file(Path(fpath)),
+            )
+        else:
+            return
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            with contextlib.suppress(Exception):
+                menu.grab_release()
 
     def _on_rename_folder(self, folder_id: str) -> None:
         folder = self.catalog.get_folder(folder_id)
@@ -650,10 +619,8 @@ class MainWindow(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Rename Failed", f"Could not rename file:\n{exc}")
             return
-        try:
+        with contextlib.suppress(Exception):
             self.catalog.update_file_path(old_path, new_path)
-        except Exception:
-            pass
         if (
             self.current_note
             and self.current_note.file_path
@@ -675,10 +642,8 @@ class MainWindow(tk.Tk):
         except Exception as exc:
             messagebox.showerror("Delete Failed", f"Could not delete file:\n{exc}")
             return
-        try:
+        with contextlib.suppress(Exception):
             self.catalog.remove_file(path)
-        except Exception:
-            pass
         if (
             self.current_note
             and self.current_note.file_path
@@ -701,13 +666,11 @@ class MainWindow(tk.Tk):
         # Make Ctrl+I act like the Delete key in the text editor only.
         # Bind multiple variants for robustness across platforms/keymaps.
         handler = lambda e: self._on_ctrl_delete()
-        try:
+        with contextlib.suppress(Exception):
             self.text_widget.bind("<Control-i>", handler, add="+")
             self.text_widget.bind("<Control-I>", handler, add="+")
             # Some systems may emit Control-Tab for Ctrl+I due to ^I mapping
             self.text_widget.bind("<Control-Tab>", handler, add="+")
-        except Exception:
-            pass
 
     def _on_ctrl_delete(self) -> str | None:
         try:
@@ -716,31 +679,25 @@ class MainWindow(tk.Tk):
             return "break"
         except Exception:
             # Fallback: delete selection or the next character
-            try:
+            with contextlib.suppress(Exception):
                 ranges = self.text_widget.tag_ranges("sel")
                 if ranges and len(ranges) >= 2:
                     self.text_widget.delete(ranges[0], ranges[1])
                 else:
                     self.text_widget.delete("insert", "insert+1c")
-            except Exception:
-                pass
             return "break"
 
     def _on_text_modified(self, _event=None) -> None:
         # Reset the modified flag or the event will not fire again
-        try:
+        with contextlib.suppress(Exception):
             self.text_widget.edit_modified(False)
-        except Exception:
-            pass
         self._schedule_highlight()
         self._schedule_draft_save()
 
     def _schedule_highlight(self) -> None:
         if self._highlight_after_id is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.after_cancel(self._highlight_after_id)
-            except Exception:
-                pass
         self._highlight_after_id = self.after(
             self.highlighter.debounce_ms, self._apply_highlighting
         )
@@ -752,7 +709,7 @@ class MainWindow(tk.Tk):
 
     def _bind_highlighter_interactions(self) -> None:
         # Bind link interactions (click + hover cursor)
-        try:
+        with contextlib.suppress(Exception):
             for li in self.highlighter.get_link_interactions():
 
                 def _open_link(_e=None, u=li.url):
@@ -763,38 +720,27 @@ class MainWindow(tk.Tk):
                     return "break"
 
                 def _enter(e):
-                    try:
+                    with contextlib.suppress(Exception):
                         e.widget.configure(cursor="hand2")
-                    except Exception:
-                        pass
 
                 def _leave(e):
-                    try:
+                    with contextlib.suppress(Exception):
                         e.widget.configure(cursor="")
-                    except Exception:
-                        pass
 
                 self.text_widget.tag_bind(li.tag, "<Button-1>", _open_link)
                 self.text_widget.tag_bind(li.tag, "<Enter>", _enter)
                 self.text_widget.tag_bind(li.tag, "<Leave>", _leave)
-        except Exception:
-            pass
-
         # Bind code run interactions (click to execute, hover to show cursor)
-        try:
+        with contextlib.suppress(Exception):
             for ci in self.highlighter.get_code_run_interactions():
 
                 def _enter(e):
-                    try:
+                    with contextlib.suppress(Exception):
                         e.widget.configure(cursor="hand2")
-                    except Exception:
-                        pass
 
                 def _leave(e):
-                    try:
+                    with contextlib.suppress(Exception):
                         e.widget.configure(cursor="")
-                    except Exception:
-                        pass
 
                 def _on_click(_e=None, btag=ci.block_tag, bdytag=ci.body_tag):
                     # Capture code text on main thread (Tk is not thread-safe)
@@ -823,10 +769,8 @@ class MainWindow(tk.Tk):
                         def _apply():
                             self._insert_or_replace_code_output(btag, payload)
 
-                        try:
+                        with contextlib.suppress(Exception):
                             self.after(0, _apply)
-                        except Exception:
-                            pass
 
                     threading.Thread(target=_run, daemon=True).start()
                     return "break"
@@ -834,21 +778,19 @@ class MainWindow(tk.Tk):
                 self.text_widget.tag_bind(ci.run_tag, "<Enter>", _enter)
                 self.text_widget.tag_bind(ci.run_tag, "<Leave>", _leave)
                 self.text_widget.tag_bind(ci.run_tag, "<Button-1>", _on_click)
-        except Exception:
-            pass
 
     def _insert_or_replace_code_output(self, block_tag: str, payload: str) -> None:
         # Insert payload after the code block; replace existing output section if present
         header = MarkdownHighlighter.OUTPUT_HEADER
         footer = MarkdownHighlighter.OUTPUT_FOOTER
-        try:
+        with contextlib.suppress(Exception):
             branges = self.text_widget.tag_ranges(block_tag)
             if not branges or len(branges) < 2:
                 return
             block_end = branges[1]
 
             # Delete existing output section directly below if present
-            try:
+            with contextlib.suppress(Exception):
                 window = self.text_widget.get(block_end, f"{block_end}+20000c")
                 lead = 0
                 while lead < len(window) and window[lead] in "\r\n":
@@ -858,9 +800,6 @@ class MainWindow(tk.Tk):
                     if rel_footer != -1:
                         total = lead + rel_footer + len(footer)
                         self.text_widget.delete(block_end, f"{block_end}+{total}c")
-            except Exception:
-                pass
-
             # Ensure newline separation
             try:
                 prev_char = self.text_widget.get(f"{block_end}-1c", block_end)
@@ -872,8 +811,6 @@ class MainWindow(tk.Tk):
 
             # Insert new output
             self.text_widget.insert(block_end, payload)
-        except Exception:
-            pass
 
     def _update_status(self) -> None:
         path_text = (
@@ -885,26 +822,20 @@ class MainWindow(tk.Tk):
             status = f"File: {path_text}"
         else:
             status = f"Draft slot: #{self.instance_index} (unsaved)"
-        try:
+        with contextlib.suppress(Exception):
             self.status_label.configure(text=status)
-        except Exception:
-            pass
 
     def _schedule_draft_save(self) -> None:
         if self._draft_after_id is not None:
-            try:
+            with contextlib.suppress(Exception):
                 self.after_cancel(self._draft_after_id)
-            except Exception:
-                pass
         # Save drafts with a small debounce to avoid excessive disk writes
         self._draft_after_id = self.after(400, self._save_draft_now)
 
     def _save_draft_now(self) -> None:
-        try:
+        with contextlib.suppress(Exception):
             text = self.text_widget.get("1.0", tk.END).rstrip()
             self.draft_service.save_draft(self.instance_index, text)
-        except Exception:
-            pass
         self._draft_after_id = None
 
     def _update_title(self) -> None:
@@ -963,10 +894,8 @@ class MainWindow(tk.Tk):
             self.file_service.write(self.current_note)
             messagebox.showinfo("Saved", "Note saved successfully.")
             # Clear draft upon successful save to a file
-            try:
+            with contextlib.suppress(Exception):
                 self.draft_service.clear_draft(self.instance_index)
-            except Exception:
-                pass
             self._update_status()
         except Exception as exc:
             messagebox.showerror("Save Failed", f"Could not save file:\n{exc}")
@@ -996,10 +925,8 @@ class MainWindow(tk.Tk):
             self._update_title()
             messagebox.showinfo("Saved", f"Saved to: {target}")
             # Clear draft after saving as a new file
-            try:
+            with contextlib.suppress(Exception):
                 self.draft_service.clear_draft(self.instance_index)
-            except Exception:
-                pass
             self._update_status()
         except Exception as exc:
             messagebox.showerror("Save Failed", f"Could not save file:\n{exc}")
@@ -1016,33 +943,23 @@ class MainWindow(tk.Tk):
             target = self.file_service.write(self.current_note)
             self._update_title()
             messagebox.showinfo("Saved", f"Saved to: {target}")
-            try:
+            with contextlib.suppress(Exception):
                 self.draft_service.clear_draft(self.instance_index)
-            except Exception:
-                pass
             self._update_status()
         except Exception as exc:
             messagebox.showerror("Save Failed", f"Could not save file:\n{exc}")
 
     def _on_close(self) -> None:
         # Persist latest draft and release the instance lock before closing
-        try:
+        with contextlib.suppress(Exception):
             if self._draft_after_id is not None:
-                try:
+                with contextlib.suppress(Exception):
                     self.after_cancel(self._draft_after_id)
-                except Exception:
-                    pass
             self._save_draft_now()
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self.draft_service.release_instance_index(self.instance_index)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             self.destroy()
-        except Exception:
-            pass
 
     # ---------- Tree interactions ----------
     def _on_tree_double_click(self, _event=None) -> None:
@@ -1064,10 +981,7 @@ class MainWindow(tk.Tk):
             self.current_note = note
             self.text_widget.delete("1.0", tk.END)
             self.text_widget.insert("1.0", note.body)
-            self._update_title()
-            self._schedule_highlight()
-            self._schedule_draft_save()
-            self._update_status()
+            self.update_note()
         elif ptype == "draft":
             try:
                 idx = int(payload.get("index", "0"))
@@ -1080,7 +994,10 @@ class MainWindow(tk.Tk):
             self.current_note = Note(title=f"Draft #{idx}", body=text)
             self.text_widget.delete("1.0", tk.END)
             self.text_widget.insert("1.0", text)
-            self._update_title()
-            self._schedule_highlight()
-            self._schedule_draft_save()
-            self._update_status()
+            self.update_note()
+
+    def update_note(self):
+        self._update_title()
+        self._schedule_highlight()
+        self._schedule_draft_save()
+        self._update_status()

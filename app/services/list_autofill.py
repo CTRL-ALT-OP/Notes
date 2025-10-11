@@ -1,4 +1,5 @@
 from __future__ import annotations
+import contextlib
 import re
 import tkinter as tk
 
@@ -96,13 +97,10 @@ class ListAutoFill:
             text.insert(line_start, add_ws)
 
             # Adjust caret position by the amount inserted if on this line
-            try:
+            with contextlib.suppress(Exception):
                 col = int(insert_index.split(".")[1])
                 new_col = col + len(add_ws)
                 text.mark_set("insert", f"{line_no}.{new_col}")
-            except Exception:
-                pass
-
             # Renumber ordered list block if applicable
             self._renumber_ordered_block(text, int(line_no))
             return "break"
@@ -141,13 +139,10 @@ class ListAutoFill:
             text.delete(line_start, f"{line_no}.{remove_len}")
 
             # Adjust caret position
-            try:
+            with contextlib.suppress(Exception):
                 col = int(insert_index.split(".")[1])
                 new_col = max(0, col - remove_len)
                 text.mark_set("insert", f"{line_no}.{new_col}")
-            except Exception:
-                pass
-
             # Renumber ordered list block if applicable
             self._renumber_ordered_block(text, int(line_no))
             return "break"
