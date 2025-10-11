@@ -3,6 +3,7 @@ import re
 import tkinter as tk
 import tkinter.font as tkfont
 from typing import List, Tuple
+from app.services.link_handler import LinkHandler
 from app.ui.theme import ThemeColors, DARK_THEME
 
 
@@ -15,11 +16,15 @@ class MarkdownHighlighter:
     """
 
     def __init__(
-        self, debounce_ms: int = 120, theme: ThemeColors | None = None
+        self,
+        debounce_ms: int = 120,
+        theme: ThemeColors | None = None,
+        link_handler: LinkHandler | None = None,
     ) -> None:
         self.debounce_ms = debounce_ms
         self.theme: ThemeColors = theme or DARK_THEME
         self._configured_widget_id: int | None = None
+        self._link_handler: LinkHandler = link_handler or LinkHandler()
 
         # Precompile patterns
         self._re_heading = re.compile(r"^(#{1,6})[\t ]+(.+)$", re.MULTILINE)
@@ -181,6 +186,17 @@ class MarkdownHighlighter:
     def clear(self, text: tk.Text) -> None:
         for tag in self._all_tags:
             text.tag_remove(tag, "1.0", tk.END)
+        # Remove dynamically created link target tags
+        try:
+            for tag in text.tag_names():
+                if str(tag).startswith("md_link_target_"):
+                    try:
+                        text.tag_delete(tag)
+                    except Exception:
+                        # Fallback: at least remove range
+                        text.tag_remove(tag, "1.0", tk.END)
+        except Exception:
+            pass
 
     def _apply_span(self, text: tk.Text, tag: str, start: int, end: int) -> None:
         if start < end:
@@ -267,7 +283,38 @@ class MarkdownHighlighter:
         for m in self._re_list.finditer(content):
             self._apply_span(text, "md_list_item", m.start(), m.end())
 
-        # Links: style link text and show URL in subtle color
-        for m in self._re_link.finditer(content):
+        # Links: style link text and show URL in subtle color; also bind clickable actions
+        for idx, m in enumerate(self._re_link.finditer(content)):
             self._apply_span(text, "md_link_text", m.start(1), m.end(1))
             self._apply_span(text, "md_link_url", m.start(2), m.end(2))
+
+            url = m.group(2)
+            unique_tag = f"md_link_target_{idx}"
+            # Make the clickable region be both the link-text and the URL
+            text.tag_add(unique_tag, self._idx(m.start(1)), self._idx(m.end(1)))
+            text.tag_add(unique_tag, self._idx(m.start(2)), self._idx(m.end(2)))
+
+            def _open(_event=None, u=url):
+                print(f"Opening link: {u}")
+                try:
+                    self._link_handler.open_link(u)
+                except Exception:
+                    pass
+
+            text.tag_bind(unique_tag, "<Button-1>", _open)
+
+            # Change cursor on hover using enter/leave bindings
+            def _enter(e):
+                try:
+                    e.widget.configure(cursor="hand2")
+                except Exception:
+                    pass
+
+            def _leave(e):
+                try:
+                    e.widget.configure(cursor="")
+                except Exception:
+                    pass
+
+            text.tag_bind(unique_tag, "<Enter>", _enter)
+            text.tag_bind(unique_tag, "<Leave>", _leave)
