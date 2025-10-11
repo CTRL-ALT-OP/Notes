@@ -31,6 +31,19 @@ class ThemeColors:
     link_text_fg: str
     link_url_fg: str
 
+    # Code syntax colors
+    code_kw_fg: str
+    code_name_fg: str
+    code_builtin_fg: str
+    code_str_fg: str
+    code_num_fg: str
+    code_cmt_fg: str
+    code_op_fg: str
+    code_punc_fg: str
+    code_func_fg: str
+    code_class_fg: str
+    code_deco_fg: str
+
 
 # Slightly muted dark theme
 DARK_THEME = ThemeColors(
@@ -50,6 +63,18 @@ DARK_THEME = ThemeColors(
     list_item_fg="#d1d5db",  # gray-300
     link_text_fg="#93c5fd",  # blue-300
     link_url_fg="#9ca3af",  # gray-400
+    # Code syntax
+    code_kw_fg="#c084fc",  # purple-400
+    code_name_fg="#e5e7eb",  # gray-200 (default text)
+    code_builtin_fg="#60a5fa",  # blue-400
+    code_str_fg="#34d399",  # emerald-400
+    code_num_fg="#fbbf24",  # amber-400
+    code_cmt_fg="#6b7280",  # gray-500
+    code_op_fg="#f472b6",  # pink-400
+    code_punc_fg="#9ca3af",  # gray-400
+    code_func_fg="#93c5fd",  # blue-300
+    code_class_fg="#fca5a5",  # red-300
+    code_deco_fg="#d8b4fe",  # purple-300
 )
 
 

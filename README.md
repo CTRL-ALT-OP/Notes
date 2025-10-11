@@ -25,4 +25,18 @@ Notes
 - Title is derived from the filename when opening
 - MarkdownService is a future-facing stub
 
+Code highlighting
+- Fenced code blocks are syntax highlighted using Pygments if installed.
+- Use language-tagged fences like:
+
+  ```
+  ```python
+  def hello(name: str) -> None:
+      print(f"Hello {name}")
+  ```
+  ```
+
+- If no language is provided, a best-effort guess is attempted on small blocks.
+- Very large code blocks may skip detailed token coloring for responsiveness.
+
 

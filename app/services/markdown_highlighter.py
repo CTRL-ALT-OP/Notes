@@ -3,6 +3,16 @@ import re
 import tkinter as tk
 import tkinter.font as tkfont
 from typing import List, Tuple
+
+try:
+    # Optional dependency; highlight gracefully if missing
+    from pygments import lex
+    from pygments.lexers import get_lexer_by_name, guess_lexer
+    from pygments.token import Token
+
+    _PYGMENTS_AVAILABLE = True
+except Exception:
+    _PYGMENTS_AVAILABLE = False
 from app.services.link_handler import LinkHandler
 from app.ui.theme import ThemeColors, DARK_THEME
 
@@ -35,7 +45,10 @@ class MarkdownHighlighter:
         self._re_bold_italic = re.compile(r"(\*\*\*|___)([^\n]+?)\1")
         self._re_strike = re.compile(r"~~([^\n]+?)~~")
         self._re_inline_code = re.compile(r"`([^`\n]+?)`")
-        self._re_fenced_code = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
+        self._re_fenced_code = re.compile(
+            r"^```(?P<lang>[^\n`]*)\n(?P<body>[\s\S]*?)^```",
+            re.MULTILINE,
+        )
         self._re_blockquote = re.compile(r"^>[\t ]?.*$", re.MULTILINE)
         # Granular list patterns: unordered and ordered, with named groups
         self._re_ul = re.compile(
@@ -81,6 +94,18 @@ class MarkdownHighlighter:
             "md_list_lvl_6",
             "md_link_text",
             "md_link_url",
+            # Code token tags
+            "md_code_kw",
+            "md_code_name",
+            "md_code_builtin",
+            "md_code_str",
+            "md_code_num",
+            "md_code_cmt",
+            "md_code_op",
+            "md_code_punc",
+            "md_code_func",
+            "md_code_class",
+            "md_code_deco",
         ]
 
     def _idx(self, char_index: int) -> str:
@@ -163,6 +188,18 @@ class MarkdownHighlighter:
             spacing3=4,
             font=mk_font(family=code_font_family),
         )
+        # Syntax token colors
+        text.tag_config("md_code_kw", foreground=self.theme.code_kw_fg)
+        text.tag_config("md_code_name", foreground=self.theme.code_name_fg)
+        text.tag_config("md_code_builtin", foreground=self.theme.code_builtin_fg)
+        text.tag_config("md_code_str", foreground=self.theme.code_str_fg)
+        text.tag_config("md_code_num", foreground=self.theme.code_num_fg)
+        text.tag_config("md_code_cmt", foreground=self.theme.code_cmt_fg)
+        text.tag_config("md_code_op", foreground=self.theme.code_op_fg)
+        text.tag_config("md_code_punc", foreground=self.theme.code_punc_fg)
+        text.tag_config("md_code_func", foreground=self.theme.code_func_fg)
+        text.tag_config("md_code_class", foreground=self.theme.code_class_fg)
+        text.tag_config("md_code_deco", foreground=self.theme.code_deco_fg)
 
         # Block elements
         text.tag_config(
@@ -250,6 +287,12 @@ class MarkdownHighlighter:
         # Fenced code blocks: apply whole block styling first to avoid conflicting highlights
         for m in self._re_fenced_code.finditer(content):
             self._apply_span(text, "md_code_block", m.start(), m.end())
+            # Apply syntax tokens (pygments) inside the body if available
+            try:
+                self._highlight_code_block_tokens(text, content, m)
+            except Exception:
+                # Fail silently; keep basic block styling
+                pass
 
         # Track spans for composing nested styles
         bold_spans: List[Tuple[int, int]] = []
@@ -402,3 +445,75 @@ class MarkdownHighlighter:
             elif ch == " ":
                 spaces += 1
         return spaces // 2
+
+    # ---------- Code token highlighting ----------
+    def _highlight_code_block_tokens(
+        self, text: tk.Text, content: str, m: re.Match
+    ) -> None:
+        if not _PYGMENTS_AVAILABLE:
+            return
+        body_start = m.start("body")
+        body_end = m.end("body")
+        if body_start is None or body_end is None:
+            return
+        code_text = content[body_start:body_end]
+        # Skip very large blocks for responsiveness
+        if len(code_text) > 20000:
+            return
+        lang_raw = (m.group("lang") or "").strip()
+        lexer = None
+        try:
+            if lang_raw:
+                lexer = get_lexer_by_name(lang_raw, stripall=False)
+        except Exception:
+            lexer = None
+        if lexer is None:
+            try:
+                # guess_lexer may be expensive; bound input size
+                sample = code_text[:4000]
+                lexer = guess_lexer(sample)
+            except Exception:
+                lexer = None
+        if lexer is None:
+            return
+
+        # Map pygments token to our tag
+        def tag_for(tok_type) -> str | None:
+            # Use startswith semantics via in-tree hierarchy
+            if tok_type in Token.Comment or str(tok_type).startswith("Token.Comment"):
+                return "md_code_cmt"
+            if tok_type in Token.Keyword or str(tok_type).startswith("Token.Keyword"):
+                return "md_code_kw"
+            if str(tok_type).startswith("Token.Name.Function"):
+                return "md_code_func"
+            if str(tok_type).startswith("Token.Name.Class"):
+                return "md_code_class"
+            if str(tok_type).startswith("Token.Name.Builtin"):
+                return "md_code_builtin"
+            if tok_type in Token.Name or str(tok_type).startswith("Token.Name"):
+                return "md_code_name"
+            if tok_type in Token.String or str(tok_type).startswith("Token.String"):
+                return "md_code_str"
+            if tok_type in Token.Number or str(tok_type).startswith("Token.Number"):
+                return "md_code_num"
+            if tok_type in Token.Operator or str(tok_type).startswith("Token.Operator"):
+                return "md_code_op"
+            if tok_type in Token.Punctuation or str(tok_type).startswith(
+                "Token.Punctuation"
+            ):
+                return "md_code_punc"
+            if str(tok_type).startswith("Token.Name.Decorator"):
+                return "md_code_deco"
+            return None
+
+        offset = 0
+        for tok_type, tok_text in lex(code_text, lexer):
+            if not tok_text:
+                continue
+            tag = tag_for(tok_type)
+            # Skip pure whitespace to reduce tag churn
+            if tag and not tok_text.isspace():
+                start = body_start + offset
+                end = start + len(tok_text)
+                self._apply_span(text, tag, start, end)
+            offset += len(tok_text)

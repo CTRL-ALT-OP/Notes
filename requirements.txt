@@ -1,2 +1,2 @@
-# No external dependencies required
+Pygments>=2.15,<3
 
