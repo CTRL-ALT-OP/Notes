@@ -3,6 +3,7 @@ import re
 import tkinter as tk
 import tkinter.font as tkfont
 from typing import List, Tuple
+from dataclasses import dataclass
 
 try:
     # Optional dependency; highlight gracefully if missing
@@ -13,9 +14,22 @@ try:
     _PYGMENTS_AVAILABLE = True
 except Exception:
     _PYGMENTS_AVAILABLE = False
-from app.services.link_handler import LinkHandler
-from app.services.code_runner import CodeRunner
 from app.ui.theme import ThemeColors, DARK_THEME
+
+
+@dataclass(frozen=True)
+class LinkInteraction:
+    url: str
+    tag: str
+
+
+@dataclass(frozen=True)
+class CodeRunInteraction:
+    language: str
+    block_tag: str
+    body_tag: str
+    run_tag: str
+    index: int
 
 
 class MarkdownHighlighter:
@@ -34,13 +48,13 @@ class MarkdownHighlighter:
         self,
         debounce_ms: int = 120,
         theme: ThemeColors | None = None,
-        link_handler: LinkHandler | None = None,
     ) -> None:
         self.debounce_ms = debounce_ms
         self.theme: ThemeColors = theme or DARK_THEME
         self._configured_widget_id: int | None = None
-        self._link_handler: LinkHandler = link_handler or LinkHandler()
-        self._runner = CodeRunner()
+        # Collected interactive regions from the last highlight pass
+        self._link_interactions: List[LinkInteraction] = []
+        self._code_run_interactions: List[CodeRunInteraction] = []
 
         # Precompile patterns
         self._re_heading = re.compile(r"^(#{1,6})[\t ]+(.+)$", re.MULTILINE)
@@ -294,6 +308,9 @@ class MarkdownHighlighter:
     def highlight(self, text: tk.Text) -> None:
         self.configure_tags(text)
         self.clear(text)
+        # reset interactions
+        self._link_interactions.clear()
+        self._code_run_interactions.clear()
         content = text.get("1.0", tk.END)
 
         # Fenced code blocks: apply whole block styling first to avoid conflicting highlights
@@ -332,7 +349,7 @@ class MarkdownHighlighter:
             except Exception:
                 pass
 
-            # Bind click for python blocks
+            # Mark python blocks as runnable via an interaction; UI will bind behavior
             if (lang_raw.lower() in ("python", "py", "py3", "py2")) and (
                 body_start is not None and body_end is not None
             ):
@@ -348,27 +365,15 @@ class MarkdownHighlighter:
                 except Exception:
                     text.tag_add(run_tag, self._idx(body_start), self._idx(body_end))
 
-                def _on_enter(e):
-                    try:
-                        e.widget.configure(cursor="hand2")
-                    except Exception:
-                        pass
-
-                def _on_leave(e):
-                    try:
-                        e.widget.configure(cursor="")
-                    except Exception:
-                        pass
-
-                def _on_click(_e, i=idx, btag=block_tag, bdytag=body_tag):
-                    try:
-                        self._run_python_block(text, i, btag, bdytag)
-                    except Exception:
-                        pass
-
-                text.tag_bind(run_tag, "<Enter>", _on_enter)
-                text.tag_bind(run_tag, "<Leave>", _on_leave)
-                text.tag_bind(run_tag, "<Button-1>", _on_click)
+                self._code_run_interactions.append(
+                    CodeRunInteraction(
+                        language=lang_raw.lower(),
+                        block_tag=block_tag,
+                        body_tag=body_tag,
+                        run_tag=run_tag,
+                        index=idx,
+                    )
+                )
 
         # Track spans for composing nested styles
         bold_spans: List[Tuple[int, int]] = []
@@ -471,7 +476,7 @@ class MarkdownHighlighter:
                 pass
             self._apply_span(text, "md_ol_marker", marker_start, marker_end)
 
-        # Links: style link text and show URL in subtle color; also bind clickable actions
+        # Links: style link text and show URL in subtle color; record clickable regions
         for idx, m in enumerate(self._re_link.finditer(content)):
             self._apply_span(text, "md_link_text", m.start(1), m.end(1))
             self._apply_span(text, "md_link_url", m.start(2), m.end(2))
@@ -482,30 +487,8 @@ class MarkdownHighlighter:
             text.tag_add(unique_tag, self._idx(m.start(1)), self._idx(m.end(1)))
             text.tag_add(unique_tag, self._idx(m.start(2)), self._idx(m.end(2)))
 
-            def _open(_event=None, u=url):
-                print(f"Opening link: {u}")
-                try:
-                    self._link_handler.open_link(u)
-                except Exception:
-                    pass
-
-            text.tag_bind(unique_tag, "<Button-1>", _open)
-
-            # Change cursor on hover using enter/leave bindings
-            def _enter(e):
-                try:
-                    e.widget.configure(cursor="hand2")
-                except Exception:
-                    pass
-
-            def _leave(e):
-                try:
-                    e.widget.configure(cursor="")
-                except Exception:
-                    pass
-
-            text.tag_bind(unique_tag, "<Enter>", _enter)
-            text.tag_bind(unique_tag, "<Leave>", _leave)
+            # Record link interaction; UI will bind behavior and hover cursor
+            self._link_interactions.append(LinkInteraction(url=url, tag=unique_tag))
 
     def _indent_level(self, whitespace: str) -> int:
         """Estimate list nesting level from leading whitespace.
@@ -594,53 +577,8 @@ class MarkdownHighlighter:
                 self._apply_span(text, tag, start, end)
             offset += len(tok_text)
 
-    # ---------- Running python code blocks ----------
-    def _run_python_block(
-        self, text: tk.Text, index: int, block_tag: str, body_tag: str
-    ) -> None:
-        # Get code text from the body tag
-        ranges = text.tag_ranges(body_tag)
-        if not ranges or len(ranges) < 2:
-            return
-        start_idx, end_idx = ranges[0], ranges[1]
-        code = text.get(start_idx, end_idx)
-        rc, out, err = self._runner.run_python(code)
-        combined = (out or "") + (err or "")
-        display = combined if combined.strip() else "none\n"
-        header = self.OUTPUT_HEADER
-        footer = self.OUTPUT_FOOTER
-        payload = header + display + ("" if display.endswith("\n") else "\n") + footer
+    def get_link_interactions(self) -> List[LinkInteraction]:
+        return list(self._link_interactions)
 
-        # Where to insert: after the code block
-        branges = text.tag_ranges(block_tag)
-        if not branges or len(branges) < 2:
-            return
-        block_end = branges[1]
-
-        # If an existing output section exists directly below, delete it first by scanning
-        try:
-            # Read a bounded window after the block to search for header/footer
-            window = text.get(block_end, f"{block_end}+20000c")
-            # Allow leading blank lines
-            lead = 0
-            while lead < len(window) and window[lead] in "\r\n":
-                lead += 1
-            if window[lead:].startswith(header):
-                rel_footer = window[lead:].find(footer)
-                if rel_footer != -1:
-                    total = lead + rel_footer + len(footer)
-                    text.delete(block_end, f"{block_end}+{total}c")
-        except Exception:
-            pass
-
-        # Ensure a separating newline
-        try:
-            prev_char = text.get(f"{block_end}-1c", block_end)
-        except Exception:
-            prev_char = "\n"
-        if prev_char != "\n":
-            text.insert(block_end, "\n")
-            block_end = f"{block_end}+1c"
-
-        # Insert the new output
-        text.insert(block_end, payload)
+    def get_code_run_interactions(self) -> List[CodeRunInteraction]:
+        return list(self._code_run_interactions)

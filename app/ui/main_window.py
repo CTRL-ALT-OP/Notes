@@ -1,6 +1,7 @@
 from __future__ import annotations
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
+import threading
 from tkinter import ttk
 from pathlib import Path
 from typing import Optional, Dict
@@ -8,6 +9,8 @@ from typing import Optional, Dict
 from app.models.note import Note
 from app.services.file_service import FileService
 from app.services.markdown_highlighter import MarkdownHighlighter
+from app.services.link_handler import LinkHandler
+from app.services.code_runner import CodeRunner
 from app.services.equation_formatter import EquationAutoFormatter
 from app.services.list_autofill import ListAutoFill
 from app.services.draft_service import DraftService
@@ -39,6 +42,8 @@ class MainWindow(tk.Tk):
         self.instance_index: int = self.draft_service.claim_instance_index()
         self.theme = theme
         self.highlighter = MarkdownHighlighter(debounce_ms=20, theme=self.theme)
+        self.link_handler = LinkHandler()
+        self.code_runner = CodeRunner()
         self.eq_formatter = EquationAutoFormatter()
         self.list_autofill = ListAutoFill()
         self._highlight_after_id: Optional[str] = None
@@ -742,7 +747,133 @@ class MainWindow(tk.Tk):
 
     def _apply_highlighting(self) -> None:
         self.highlighter.highlight(self.text_widget)
+        self._bind_highlighter_interactions()
         self._highlight_after_id = None
+
+    def _bind_highlighter_interactions(self) -> None:
+        # Bind link interactions (click + hover cursor)
+        try:
+            for li in self.highlighter.get_link_interactions():
+
+                def _open_link(_e=None, u=li.url):
+                    # Run in background to avoid blocking UI on slow handlers
+                    threading.Thread(
+                        target=lambda: self.link_handler.open_link(u), daemon=True
+                    ).start()
+                    return "break"
+
+                def _enter(e):
+                    try:
+                        e.widget.configure(cursor="hand2")
+                    except Exception:
+                        pass
+
+                def _leave(e):
+                    try:
+                        e.widget.configure(cursor="")
+                    except Exception:
+                        pass
+
+                self.text_widget.tag_bind(li.tag, "<Button-1>", _open_link)
+                self.text_widget.tag_bind(li.tag, "<Enter>", _enter)
+                self.text_widget.tag_bind(li.tag, "<Leave>", _leave)
+        except Exception:
+            pass
+
+        # Bind code run interactions (click to execute, hover to show cursor)
+        try:
+            for ci in self.highlighter.get_code_run_interactions():
+
+                def _enter(e):
+                    try:
+                        e.widget.configure(cursor="hand2")
+                    except Exception:
+                        pass
+
+                def _leave(e):
+                    try:
+                        e.widget.configure(cursor="")
+                    except Exception:
+                        pass
+
+                def _on_click(_e=None, btag=ci.block_tag, bdytag=ci.body_tag):
+                    # Capture code text on main thread (Tk is not thread-safe)
+                    try:
+                        ranges = self.text_widget.tag_ranges(bdytag)
+                        if not ranges or len(ranges) < 2:
+                            return "break"
+                        start_idx, end_idx = ranges[0], ranges[1]
+                        code = self.text_widget.get(start_idx, end_idx)
+                    except Exception:
+                        return "break"
+
+                    def _run():
+                        rc, out, err = self.code_runner.run_python(code)
+                        combined = (out or "") + (err or "")
+                        display = combined if combined.strip() else "none\n"
+                        header = MarkdownHighlighter.OUTPUT_HEADER
+                        footer = MarkdownHighlighter.OUTPUT_FOOTER
+                        payload = (
+                            header
+                            + display
+                            + ("" if display.endswith("\n") else "\n")
+                            + footer
+                        )
+
+                        def _apply():
+                            self._insert_or_replace_code_output(btag, payload)
+
+                        try:
+                            self.after(0, _apply)
+                        except Exception:
+                            pass
+
+                    threading.Thread(target=_run, daemon=True).start()
+                    return "break"
+
+                self.text_widget.tag_bind(ci.run_tag, "<Enter>", _enter)
+                self.text_widget.tag_bind(ci.run_tag, "<Leave>", _leave)
+                self.text_widget.tag_bind(ci.run_tag, "<Button-1>", _on_click)
+        except Exception:
+            pass
+
+    def _insert_or_replace_code_output(self, block_tag: str, payload: str) -> None:
+        # Insert payload after the code block; replace existing output section if present
+        header = MarkdownHighlighter.OUTPUT_HEADER
+        footer = MarkdownHighlighter.OUTPUT_FOOTER
+        try:
+            branges = self.text_widget.tag_ranges(block_tag)
+            if not branges or len(branges) < 2:
+                return
+            block_end = branges[1]
+
+            # Delete existing output section directly below if present
+            try:
+                window = self.text_widget.get(block_end, f"{block_end}+20000c")
+                lead = 0
+                while lead < len(window) and window[lead] in "\r\n":
+                    lead += 1
+                if window[lead:].startswith(header):
+                    rel_footer = window[lead:].find(footer)
+                    if rel_footer != -1:
+                        total = lead + rel_footer + len(footer)
+                        self.text_widget.delete(block_end, f"{block_end}+{total}c")
+            except Exception:
+                pass
+
+            # Ensure newline separation
+            try:
+                prev_char = self.text_widget.get(f"{block_end}-1c", block_end)
+            except Exception:
+                prev_char = "\n"
+            if prev_char != "\n":
+                self.text_widget.insert(block_end, "\n")
+                block_end = f"{block_end}+1c"
+
+            # Insert new output
+            self.text_widget.insert(block_end, payload)
+        except Exception:
+            pass
 
     def _update_status(self) -> None:
         path_text = (
