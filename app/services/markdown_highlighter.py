@@ -37,8 +37,14 @@ class MarkdownHighlighter:
         self._re_inline_code = re.compile(r"`([^`\n]+?)`")
         self._re_fenced_code = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
         self._re_blockquote = re.compile(r"^>[\t ]?.*$", re.MULTILINE)
-        self._re_list = re.compile(
-            r"^(?:[\t ]*[-*+][\t ]+|[\t ]*\d+\.[\t ]+).*$", re.MULTILINE
+        # Granular list patterns: unordered and ordered, with named groups
+        self._re_ul = re.compile(
+            r"^(?P<indent>[\t ]*)(?P<marker>[-*+])[\t ]+(?P<text>.+)$",
+            re.MULTILINE,
+        )
+        self._re_ol = re.compile(
+            r"^(?P<indent>[\t ]*)(?P<num>\d+)\.[\t ]+(?P<text>.+)$",
+            re.MULTILINE,
         )
         self._re_link = re.compile(r"\[([^\]\n]+)\]\(([^)\n]+)\)")
 
@@ -63,6 +69,16 @@ class MarkdownHighlighter:
             "md_code_block",
             "md_blockquote",
             "md_list_item",
+            "md_ul_marker",
+            "md_ol_marker",
+            # Predeclare several list level tags for clearing/config
+            "md_list_lvl_0",
+            "md_list_lvl_1",
+            "md_list_lvl_2",
+            "md_list_lvl_3",
+            "md_list_lvl_4",
+            "md_list_lvl_5",
+            "md_list_lvl_6",
             "md_link_text",
             "md_link_url",
         ]
@@ -156,6 +172,30 @@ class MarkdownHighlighter:
             lmargin2=20,
         )
         text.tag_config("md_list_item", foreground=self.theme.list_item_fg)
+        text.tag_config(
+            "md_ul_marker",
+            font=mk_font(weight="bold"),
+            foreground=self.theme.heading_fg,
+        )
+        text.tag_config(
+            "md_ol_marker",
+            font=mk_font(weight="bold"),
+            foreground=self.theme.heading_fg,
+        )
+
+        # List indentation levels (hanging indent): lmargin1 applies to first line,
+        # lmargin2 to wrapped lines; indent increases by 20px per level.
+        try:
+            for lvl in range(0, 7):
+                indent_px = lvl * 20
+                text.tag_config(
+                    f"md_list_lvl_{lvl}",
+                    lmargin1=0,
+                    lmargin2=indent_px + 20,
+                )
+        except Exception:
+            # If platform rejects margin config, ignore gracefully
+            pass
 
         # Links
         text.tag_config(
@@ -280,8 +320,37 @@ class MarkdownHighlighter:
             self._apply_span(text, "md_blockquote", m.start(), m.end())
 
         # List items
-        for m in self._re_list.finditer(content):
+        # Unordered list items (bulleted)
+        for m in self._re_ul.finditer(content):
+            # Whole line styled as list item
             self._apply_span(text, "md_list_item", m.start(), m.end())
+            # Apply indentation level
+            indent_ws = m.group("indent") or ""
+            level = self._indent_level(indent_ws)
+            level = max(0, min(level, 6))
+            self._apply_span(text, f"md_list_lvl_{level}", m.start(), m.end())
+            # Emphasize the bullet marker itself
+            self._apply_span(text, "md_ul_marker", m.start("marker"), m.end("marker"))
+
+        # Ordered list items (numbered)
+        for m in self._re_ol.finditer(content):
+            # Whole line styled as list item
+            self._apply_span(text, "md_list_item", m.start(), m.end())
+            # Apply indentation level
+            indent_ws = m.group("indent") or ""
+            level = self._indent_level(indent_ws)
+            level = max(0, min(level, 6))
+            self._apply_span(text, f"md_list_lvl_{level}", m.start(), m.end())
+            # Emphasize the numeric marker including the trailing period
+            marker_start = m.start("num")
+            marker_end = m.end("num")
+            # Include the dot if present right after the number
+            try:
+                if content[marker_end : marker_end + 1] == ".":
+                    marker_end += 1
+            except Exception:
+                pass
+            self._apply_span(text, "md_ol_marker", marker_start, marker_end)
 
         # Links: style link text and show URL in subtle color; also bind clickable actions
         for idx, m in enumerate(self._re_link.finditer(content)):
@@ -318,3 +387,18 @@ class MarkdownHighlighter:
 
             text.tag_bind(unique_tag, "<Enter>", _enter)
             text.tag_bind(unique_tag, "<Leave>", _leave)
+
+    def _indent_level(self, whitespace: str) -> int:
+        """Estimate list nesting level from leading whitespace.
+
+        Tabs count as 4 spaces. Each 2 spaces yields one level.
+        """
+        if not whitespace:
+            return 0
+        spaces = 0
+        for ch in whitespace:
+            if ch == "\t":
+                spaces += 4
+            elif ch == " ":
+                spaces += 1
+        return spaces // 2

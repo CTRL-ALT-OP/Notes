@@ -9,6 +9,7 @@ from app.models.note import Note
 from app.services.file_service import FileService
 from app.services.markdown_highlighter import MarkdownHighlighter
 from app.services.equation_formatter import EquationAutoFormatter
+from app.services.list_autofill import ListAutoFill
 from app.services.draft_service import DraftService
 from app.services.catalog_service import CatalogService, CatalogFolder
 from app.ui.theme import (
@@ -39,6 +40,7 @@ class MainWindow(tk.Tk):
         self.theme = theme
         self.highlighter = MarkdownHighlighter(debounce_ms=20, theme=self.theme)
         self.eq_formatter = EquationAutoFormatter()
+        self.list_autofill = ListAutoFill()
         self._highlight_after_id: Optional[str] = None
         self._dropdown: Optional[tk.Toplevel] = None
         self._draft_after_id: Optional[str] = None
@@ -73,6 +75,10 @@ class MainWindow(tk.Tk):
         # Attach auto-formatter bindings similar to the highlighter
         try:
             self.eq_formatter.attach(self.text_widget)
+        except Exception:
+            pass
+        try:
+            self.list_autofill.attach(self.text_widget)
         except Exception:
             pass
         self._bind_live_highlighting()
