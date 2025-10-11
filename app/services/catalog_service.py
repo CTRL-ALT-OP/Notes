@@ -98,6 +98,13 @@ class CatalogService:
             self._known_paths.discard(cf.path)
         self.save()
 
+    def rename_folder(self, folder_id: str, new_name: str) -> None:
+        folder = self._folders.get(folder_id)
+        if not folder:
+            return
+        folder.name = new_name.strip() or folder.name
+        self.save()
+
     def list_folders(self) -> List[CatalogFolder]:
         # Stable order by id creation
         return [
@@ -165,4 +172,23 @@ class CatalogService:
                 break
         if removed:
             self._known_paths.discard(abs_path)
+            self.save()
+
+    def update_file_path(self, old_path: Path, new_path: Path) -> None:
+        old_abs = str(old_path.resolve())
+        new_abs = str(new_path.resolve())
+        if old_abs == new_abs:
+            return
+        updated = False
+        for folder in self._folders.values():
+            for cf in folder.files:
+                if cf.path == old_abs:
+                    cf.path = new_abs
+                    updated = True
+                    break
+            if updated:
+                break
+        if updated:
+            self._known_paths.discard(old_abs)
+            self._known_paths.add(new_abs)
             self.save()

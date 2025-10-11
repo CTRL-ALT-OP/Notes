@@ -28,3 +28,25 @@ class FileService:
         target.write_text(note.to_text(), encoding=encoding)
         note.file_path = target
         return target
+
+    def delete(self, path: Path) -> None:
+        """Delete a note file from disk if it exists."""
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            # Propagate minimal surface; caller may show a message
+            raise
+
+    def rename(self, old_path: Path, new_path: Path) -> Path:
+        """Rename/move a note file on disk. Returns the new path.
+
+        Ensures the target path uses the default extension.
+        """
+        target = self.ensure_extension(new_path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            old_path.rename(target)
+        except Exception:
+            # If rename fails, surface the error for the UI to handle
+            raise
+        return target

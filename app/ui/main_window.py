@@ -46,9 +46,14 @@ class MainWindow(tk.Tk):
 
         # Sidebar/Tree state
         self.sidebar_width = 150
+        self._sidebar_collapsed = False
+        self._sidebar_prev_width = self.sidebar_width
+        self._sidebar_anim_after_id: Optional[str] = None
+        self._sidebar_anim_token: int = 0
         self._tree_item_to_payload: Dict[str, Dict[str, str]] = {}
         self._drag_item_id: Optional[str] = None
         self._drag_hover_id: Optional[str] = None
+        self._tree_menu: Optional[tk.Menu] = None
 
         # Apply theme to the root and attempt Windows dark title bar
         apply_theme_to_root(self, self.theme)
@@ -86,6 +91,7 @@ class MainWindow(tk.Tk):
         self.bind("<Control-s>", lambda e: self.on_save())
         self.bind("<Control-o>", lambda e: self.on_open())
         self.bind("<Control-n>", lambda e: self.on_new())
+        self.bind("<Control-b>", lambda e: self._toggle_sidebar())
 
     def _build_menu(self) -> None:
         # Custom dark menu bar using a Frame + faux button that opens a custom dropdown
@@ -109,6 +115,24 @@ class MainWindow(tk.Tk):
         )
         self.file_btn.bind(
             "<Leave>", lambda e: self.file_btn.configure(bg=self.theme.menubar_bg)
+        )
+
+        # View menu for toggling sidebar when collapsed
+        self.view_btn = tk.Label(
+            self.menu_frame,
+            text="View",
+            bg=self.theme.menubar_bg,
+            fg=self.theme.menubar_fg,
+            padx=8,
+            pady=4,
+        )
+        self.view_btn.pack(side=tk.LEFT)
+        self.view_btn.bind("<Button-1>", self._open_view_dropdown)
+        self.view_btn.bind(
+            "<Enter>", lambda e: self.view_btn.configure(bg=self.theme.menu_active_bg)
+        )
+        self.view_btn.bind(
+            "<Leave>", lambda e: self.view_btn.configure(bg=self.theme.menubar_bg)
         )
 
         # Global click to dismiss dropdown if open
@@ -139,6 +163,41 @@ class MainWindow(tk.Tk):
         self._add_dropdown_item(container, "Open...", self.on_open)
         self._add_dropdown_item(container, "Save (Current File)", self.on_save_current)
         self._add_dropdown_item(container, "Save As...", self.on_save_as)
+
+        # Esc closes
+        self._dropdown.bind("<Escape>", lambda e: self._close_dropdown())
+        try:
+            self._dropdown.focus_force()
+        except Exception:
+            pass
+
+    def _open_view_dropdown(self, _event=None) -> None:
+        # Toggle behavior
+        if self._dropdown is not None and self._dropdown.winfo_exists():
+            self._close_dropdown()
+            return
+
+        # Create borderless dropdown
+        self._dropdown = tk.Toplevel(self)
+        self._dropdown.overrideredirect(True)
+        self._dropdown.configure(bg=self.theme.menubar_bg, highlightthickness=0, bd=0)
+
+        # Position below the View button
+        bx = self.view_btn.winfo_rootx()
+        by = self.view_btn.winfo_rooty() + self.view_btn.winfo_height()
+        self._dropdown.wm_geometry(f"200x36+{bx}+{by}")
+
+        # Build menu items
+        container = tk.Frame(
+            self._dropdown, bg=self.theme.menubar_bg, bd=0, highlightthickness=0
+        )
+        container.pack(fill=tk.BOTH, expand=True)
+
+        accel = " (Ctrl+B)"
+        label = (
+            "Hide Sidebar" if not self._sidebar_collapsed else "Show Sidebar"
+        ) + accel
+        self._add_dropdown_item(container, label, self._toggle_sidebar)
 
         # Esc closes
         self._dropdown.bind("<Escape>", lambda e: self._close_dropdown())
@@ -221,24 +280,37 @@ class MainWindow(tk.Tk):
             bg=self.theme.menubar_bg,
         )
         header.pack(fill=tk.X)
+        toggle_btn = tk.Button(
+            header,
+            text="≡",
+            command=self._toggle_sidebar,
+            bg=self.theme.menu_active_bg,
+            fg=self.theme.menu_active_fg,
+            relief=tk.FLAT,
+            padx=6,
+            width=2,
+        )
+        toggle_btn.pack(side=tk.LEFT, padx=(6, 0), pady=6)
         add_folder_btn = tk.Button(
             header,
-            text="+ Folder",
+            text="📁",
             command=self._on_add_folder,
             bg=self.theme.menu_active_bg,
             fg=self.theme.menu_active_fg,
             relief=tk.FLAT,
             padx=6,
+            width=2,
         )
         add_folder_btn.pack(side=tk.LEFT, padx=6, pady=6)
         add_files_btn = tk.Button(
             header,
-            text="+ Files",
+            text="➕",
             command=self._on_add_files,
             bg=self.theme.menu_active_bg,
             fg=self.theme.menu_active_fg,
             relief=tk.FLAT,
             padx=6,
+            width=2,
         )
         add_files_btn.pack(side=tk.LEFT, padx=6, pady=6)
 
@@ -267,6 +339,7 @@ class MainWindow(tk.Tk):
         self.tree.bind("<ButtonPress-1>", self._on_tree_button_press)
         self.tree.bind("<B1-Motion>", self._on_tree_drag_motion)
         self.tree.bind("<ButtonRelease-1>", self._on_tree_button_release)
+        self.tree.bind("<Button-3>", self._on_tree_right_click)
 
         # Editor area
         editor_frame = tk.Frame(self.body, bg=self.theme.background)
@@ -374,6 +447,61 @@ class MainWindow(tk.Tk):
         )
         self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 
+    # ---------- Sidebar toggle ----------
+    def _toggle_sidebar(self) -> None:
+        # cancel any previous animation
+        if self._sidebar_anim_after_id is not None:
+            try:
+                self.after_cancel(self._sidebar_anim_after_id)
+            except Exception:
+                pass
+            self._sidebar_anim_after_id = None
+        # increment token so in-flight callbacks can detect staleness
+        self._sidebar_anim_token += 1
+        token = self._sidebar_anim_token
+        if not self._sidebar_collapsed:
+            self._sidebar_prev_width = max(
+                self.sidebar.winfo_width(), self.sidebar_width
+            )
+            self._animate_sidebar_width(0, token)
+            self._sidebar_collapsed = True
+        else:
+            target = max(150, self._sidebar_prev_width)
+            self._animate_sidebar_width(target, token)
+            self._sidebar_collapsed = False
+
+    def _animate_sidebar_width(
+        self, target_width: int, token: Optional[int] = None
+    ) -> None:
+        try:
+            current = self.sidebar.winfo_width()
+        except Exception:
+            current = self.sidebar_width
+        if current == target_width:
+            self.sidebar_width = target_width
+            self.sidebar.configure(width=target_width)
+            self._sidebar_anim_after_id = None
+            return
+        step = 12 if target_width > current else -12
+        next_width = current + step
+        if (step > 0 and next_width > target_width) or (
+            step < 0 and next_width < target_width
+        ):
+            next_width = target_width
+        self.sidebar.configure(width=next_width)
+        try:
+            self.sidebar.update_idletasks()
+        except Exception:
+            pass
+
+        # if token provided, ensure only latest animation continues
+        def _next():
+            if token is not None and token != self._sidebar_anim_token:
+                return
+            self._animate_sidebar_width(target_width, token)
+
+        self._sidebar_anim_after_id = self.after(10, _next)
+
     # ---------- Sidebar actions ----------
     def _on_add_folder(self) -> None:
         name = simpledialog.askstring("New Folder", "Folder name:", parent=self)
@@ -431,6 +559,119 @@ class MainWindow(tk.Tk):
         finally:
             self._drag_item_id = None
             self._drag_hover_id = None
+
+    # ---------- Tree context menu ----------
+    def _on_tree_right_click(self, event) -> None:
+        row = self.tree.identify_row(event.y)
+        if row:
+            try:
+                self.tree.selection_set(row)
+            except Exception:
+                pass
+            payload = self._tree_item_to_payload.get(row, {})
+            menu = tk.Menu(
+                self, tearoff=0, bg=self.theme.menubar_bg, fg=self.theme.menubar_fg
+            )
+            ptype = payload.get("type")
+            if ptype == "folder":
+                fid = payload.get("id", "")
+                menu.add_command(
+                    label="Rename Folder", command=lambda: self._on_rename_folder(fid)
+                )
+                menu.add_command(
+                    label="Delete Folder", command=lambda: self._on_delete_folder(fid)
+                )
+            elif ptype == "file":
+                fpath = payload.get("path", "")
+                menu.add_command(
+                    label="Rename File",
+                    command=lambda: self._on_rename_file(Path(fpath)),
+                )
+                menu.add_command(
+                    label="Delete File",
+                    command=lambda: self._on_delete_file(Path(fpath)),
+                )
+            else:
+                return
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                try:
+                    menu.grab_release()
+                except Exception:
+                    pass
+
+    def _on_rename_folder(self, folder_id: str) -> None:
+        folder = self.catalog.get_folder(folder_id)
+        if not folder:
+            return
+        new_name = simpledialog.askstring(
+            "Rename Folder", "New folder name:", initialvalue=folder.name, parent=self
+        )
+        if not new_name:
+            return
+        self.catalog.rename_folder(folder_id, new_name)
+        self._refresh_tree()
+
+    def _on_delete_folder(self, folder_id: str) -> None:
+        if not messagebox.askyesno(
+            "Delete Folder",
+            "Remove this folder and its listed files from the catalog? Files on disk are not deleted.",
+        ):
+            return
+        self.catalog.remove_folder(folder_id)
+        self._refresh_tree()
+
+    def _on_rename_file(self, old_path: Path) -> None:
+        initial = old_path.name
+        new_name = simpledialog.askstring(
+            "Rename File", "New file name:", initialvalue=initial, parent=self
+        )
+        if not new_name:
+            return
+        target_path = old_path.parent / new_name
+        try:
+            new_path = self.file_service.rename(old_path, target_path)
+        except Exception as exc:
+            messagebox.showerror("Rename Failed", f"Could not rename file:\n{exc}")
+            return
+        try:
+            self.catalog.update_file_path(old_path, new_path)
+        except Exception:
+            pass
+        if (
+            self.current_note
+            and self.current_note.file_path
+            and self.current_note.file_path.resolve() == old_path.resolve()
+        ):
+            self.current_note.file_path = new_path
+            self.current_note.title = Note.derive_title_from_path(new_path)
+            self._update_title()
+            self._update_status()
+        self._refresh_tree()
+
+    def _on_delete_file(self, path: Path) -> None:
+        if not messagebox.askyesno(
+            "Delete File", f"Delete this file from disk?\n{path}"
+        ):
+            return
+        try:
+            self.file_service.delete(path)
+        except Exception as exc:
+            messagebox.showerror("Delete Failed", f"Could not delete file:\n{exc}")
+            return
+        try:
+            self.catalog.remove_file(path)
+        except Exception:
+            pass
+        if (
+            self.current_note
+            and self.current_note.file_path
+            and self.current_note.file_path.resolve() == path.resolve()
+        ):
+            self.current_note.file_path = None
+            self._update_status()
+        self._refresh_tree()
 
     def _bind_live_highlighting(self) -> None:
         # Bind to Tk's modified virtual event for edits/undo/redo/paste
