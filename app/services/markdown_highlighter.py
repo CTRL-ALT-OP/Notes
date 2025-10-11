@@ -44,6 +44,12 @@ class MarkdownHighlighter:
             "md_h4",
             "md_h5",
             "md_h6",
+            "md_h1_italic",
+            "md_h2_italic",
+            "md_h3_italic",
+            "md_h4_italic",
+            "md_h5_italic",
+            "md_h6_italic",
             "md_bold",
             "md_italic",
             "md_bold_italic",
@@ -152,6 +158,24 @@ class MarkdownHighlighter:
         )
         text.tag_config("md_link_url", foreground=self.theme.link_url_fg)
 
+        # Composite heading + italic fonts (created last for highest priority)
+        text.tag_config(
+            "md_h1_italic", font=mk_font(weight="bold", slant="italic", size_delta=8)
+        )
+        text.tag_config(
+            "md_h2_italic", font=mk_font(weight="bold", slant="italic", size_delta=6)
+        )
+        text.tag_config(
+            "md_h3_italic", font=mk_font(weight="bold", slant="italic", size_delta=4)
+        )
+        text.tag_config(
+            "md_h4_italic", font=mk_font(weight="bold", slant="italic", size_delta=2)
+        )
+        text.tag_config(
+            "md_h5_italic", font=mk_font(weight="bold", slant="italic", size_delta=1)
+        )
+        text.tag_config("md_h6_italic", font=mk_font(weight="bold", slant="italic"))
+
         self._configured_widget_id = id(text)
 
     def clear(self, text: tk.Text) -> None:
@@ -171,6 +195,11 @@ class MarkdownHighlighter:
         for m in self._re_fenced_code.finditer(content):
             self._apply_span(text, "md_code_block", m.start(), m.end())
 
+        # Track spans for composing nested styles
+        bold_spans: List[Tuple[int, int]] = []
+        italic_spans: List[Tuple[int, int]] = []
+        heading_spans: List[Tuple[int, int, int]] = []  # (start, end, level)
+
         # Headings
         for m in self._re_heading.finditer(content):
             hashes, heading_text = m.group(1), m.group(2)
@@ -180,19 +209,47 @@ class MarkdownHighlighter:
             text_start = m.start(2)
             text_end = m.end(2)
             self._apply_span(text, tag, text_start, text_end)
+            heading_spans.append((text_start, text_end, level))
 
         # Bold-italic (*** or ___) first
         for m in self._re_bold_italic.finditer(content):
-            self._apply_span(text, "md_bold_italic", m.start(2), m.end(2))
+            start, end = m.start(2), m.end(2)
+            self._apply_span(text, "md_bold_italic", start, end)
+            # Treat as both bold and italic for overlap logic
+            bold_spans.append((start, end))
+            italic_spans.append((start, end))
 
         # Bold then italic
         for m in self._re_bold.finditer(content):
-            self._apply_span(text, "md_bold", m.start(2), m.end(2))
+            start, end = m.start(2), m.end(2)
+            self._apply_span(text, "md_bold", start, end)
+            bold_spans.append((start, end))
 
         for m in self._re_italic.finditer(content):
             # pattern has two alternatives; choose the matched group
             grp = 1 if m.group(1) is not None else 2
-            self._apply_span(text, "md_italic", m.start(grp), m.end(grp))
+            start, end = m.start(grp), m.end(grp)
+            self._apply_span(text, "md_italic", start, end)
+            italic_spans.append((start, end))
+
+        # Enable stacking: apply md_bold_italic over intersections of bold and italic
+        if bold_spans and italic_spans:
+            for bs in bold_spans:
+                for is_ in italic_spans:
+                    s = max(bs[0], is_[0])
+                    e = min(bs[1], is_[1])
+                    if s < e:
+                        self._apply_span(text, "md_bold_italic", s, e)
+
+        # Preserve heading size while allowing italic inside headings
+        if heading_spans and italic_spans:
+            for hs in heading_spans:
+                h_start, h_end, level = hs
+                for is_ in italic_spans:
+                    s = max(h_start, is_[0])
+                    e = min(h_end, is_[1])
+                    if s < e:
+                        self._apply_span(text, f"md_h{level}_italic", s, e)
 
         # Strikethrough
         for m in self._re_strike.finditer(content):
