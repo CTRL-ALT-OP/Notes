@@ -83,6 +83,9 @@ class MainWindow(tk.Tk):
             pass
         self._bind_live_highlighting()
 
+        # Editor key aliases (e.g., Ctrl+I -> Delete)
+        self._bind_editor_key_aliases()
+
         # Focus the editor on start for immediate typing
         self.text_widget.focus_set()
 
@@ -687,6 +690,36 @@ class MainWindow(tk.Tk):
         self._schedule_highlight()
         # Also schedule draft autosave on edits
         self._schedule_draft_save()
+
+    # ---------- Editor key aliases ----------
+    def _bind_editor_key_aliases(self) -> None:
+        # Make Ctrl+I act like the Delete key in the text editor only.
+        # Bind multiple variants for robustness across platforms/keymaps.
+        handler = lambda e: self._on_ctrl_delete()
+        try:
+            self.text_widget.bind("<Control-i>", handler, add="+")
+            self.text_widget.bind("<Control-I>", handler, add="+")
+            # Some systems may emit Control-Tab for Ctrl+I due to ^I mapping
+            self.text_widget.bind("<Control-Tab>", handler, add="+")
+        except Exception:
+            pass
+
+    def _on_ctrl_delete(self) -> str | None:
+        try:
+            # Prefer Tk's native Delete behavior for proper undo/modified flags
+            self.text_widget.event_generate("<Delete>")
+            return "break"
+        except Exception:
+            # Fallback: delete selection or the next character
+            try:
+                ranges = self.text_widget.tag_ranges("sel")
+                if ranges and len(ranges) >= 2:
+                    self.text_widget.delete(ranges[0], ranges[1])
+                else:
+                    self.text_widget.delete("insert", "insert+1c")
+            except Exception:
+                pass
+            return "break"
 
     def _on_text_modified(self, _event=None) -> None:
         # Reset the modified flag or the event will not fire again
