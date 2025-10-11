@@ -276,6 +276,10 @@ class MarkdownHighlighter:
         )
         text.tag_config("md_h6_italic", font=mk_font(weight="bold", slant="italic"))
 
+        # Ensure selection highlight appears over any markdown backgrounds
+        with contextlib.suppress(Exception):
+            text.tag_raise("sel")
+
         self._configured_widget_id = id(text)
 
     def clear(self, text: tk.Text) -> None:
@@ -451,6 +455,10 @@ class MarkdownHighlighter:
         self._highlight_misc_inline(text, content)
         self._highlight_lists(text, content)
         self._highlight_links(text, content)
+
+        # Ensure selection highlight remains visible over dynamic tags
+        with contextlib.suppress(Exception):
+            text.tag_raise("sel")
 
     def _indent_level(self, whitespace: str) -> int:
         """Estimate list nesting level from leading whitespace.
