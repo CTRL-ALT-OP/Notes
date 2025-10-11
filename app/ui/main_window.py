@@ -8,6 +8,7 @@ from app.models.note import Note
 from app.services.file_service import FileService
 from app.services.markdown_highlighter import MarkdownHighlighter
 from app.services.equation_formatter import EquationAutoFormatter
+from app.services.draft_service import DraftService
 from app.ui.theme import (
     DARK_THEME,
     ThemeColors,
@@ -20,7 +21,10 @@ class MainWindow(tk.Tk):
     """Main application window with a minimal editor and Save/Open actions."""
 
     def __init__(
-        self, file_service: FileService, theme: ThemeColors = DARK_THEME
+        self,
+        file_service: FileService,
+        theme: ThemeColors = DARK_THEME,
+        draft_service: Optional[DraftService] = None,
     ) -> None:
         super().__init__()
         self.title("Markdown Notes")
@@ -28,18 +32,30 @@ class MainWindow(tk.Tk):
 
         self.file_service = file_service
         self.current_note: Optional[Note] = Note(title="Untitled", body="")
+        self.draft_service = draft_service or DraftService()
+        self.instance_index: int = self.draft_service.claim_instance_index()
         self.theme = theme
         self.highlighter = MarkdownHighlighter(debounce_ms=20, theme=self.theme)
         self.eq_formatter = EquationAutoFormatter()
         self._highlight_after_id: Optional[str] = None
         self._dropdown: Optional[tk.Toplevel] = None
+        self._draft_after_id: Optional[str] = None
 
         # Apply theme to the root and attempt Windows dark title bar
         apply_theme_to_root(self, self.theme)
         apply_windows_dark_title_bar(self)
 
+        # Load any existing draft for this instance before building the editor
+        try:
+            loaded = self.draft_service.load_draft(self.instance_index)
+            if loaded:
+                self.current_note.body = loaded
+        except Exception:
+            pass
+
         self._build_menu()
         self._build_editor()
+        self._build_status_bar()
         # Attach auto-formatter bindings similar to the highlighter
         try:
             self.eq_formatter.attach(self.text_widget)
@@ -49,6 +65,13 @@ class MainWindow(tk.Tk):
 
         # Focus the editor on start for immediate typing
         self.text_widget.focus_set()
+
+        # Update title to include instance index and current note title
+        self._update_title()
+        self._update_status()
+
+        # Ensure we handle window close to persist draft and release index
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
 
     def _build_menu(self) -> None:
         # Custom dark menu bar using a Frame + faux button that opens a custom dropdown
@@ -91,7 +114,7 @@ class MainWindow(tk.Tk):
         # Position below the File button
         bx = self.file_btn.winfo_rootx()
         by = self.file_btn.winfo_rooty() + self.file_btn.winfo_height()
-        self._dropdown.wm_geometry(f"200x80+{bx}+{by}")
+        self._dropdown.wm_geometry(f"220x110+{bx}+{by}")
 
         # Build menu items
         container = tk.Frame(
@@ -100,7 +123,8 @@ class MainWindow(tk.Tk):
         container.pack(fill=tk.BOTH, expand=True)
 
         self._add_dropdown_item(container, "Open...", self.on_open)
-        self._add_dropdown_item(container, "Save", self.on_save)
+        self._add_dropdown_item(container, "Save (Current File)", self.on_save_current)
+        self._add_dropdown_item(container, "Save As...", self.on_save_as)
 
         # Esc closes
         self._dropdown.bind("<Escape>", lambda e: self._close_dropdown())
@@ -183,11 +207,28 @@ class MainWindow(tk.Tk):
         self.text_widget.pack(fill=tk.BOTH, expand=True)
         self.text_widget.insert("1.0", self.current_note.body)
 
+    def _build_status_bar(self) -> None:
+        self.status_frame = tk.Frame(
+            self, bg=self.theme.menubar_bg, height=22, highlightthickness=0, bd=0
+        )
+        self.status_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        self.status_label = tk.Label(
+            self.status_frame,
+            text="",
+            bg=self.theme.menubar_bg,
+            fg=self.theme.menubar_fg,
+            anchor="w",
+            padx=8,
+        )
+        self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
     def _bind_live_highlighting(self) -> None:
         # Bind to Tk's modified virtual event for edits/undo/redo/paste
         self.text_widget.bind("<<Modified>>", self._on_text_modified)
         # Initial highlight
         self._schedule_highlight()
+        # Also schedule draft autosave on edits
+        self._schedule_draft_save()
 
     def _on_text_modified(self, _event=None) -> None:
         # Reset the modified flag or the event will not fire again
@@ -196,6 +237,7 @@ class MainWindow(tk.Tk):
         except Exception:
             pass
         self._schedule_highlight()
+        self._schedule_draft_save()
 
     def _schedule_highlight(self) -> None:
         if self._highlight_after_id is not None:
@@ -210,6 +252,46 @@ class MainWindow(tk.Tk):
     def _apply_highlighting(self) -> None:
         self.highlighter.highlight(self.text_widget)
         self._highlight_after_id = None
+
+    def _update_status(self) -> None:
+        path_text = (
+            str(self.current_note.file_path)
+            if (self.current_note and self.current_note.file_path)
+            else None
+        )
+        if path_text:
+            status = f"File: {path_text}"
+        else:
+            status = f"Draft slot: #{self.instance_index} (unsaved)"
+        try:
+            self.status_label.configure(text=status)
+        except Exception:
+            pass
+
+    def _schedule_draft_save(self) -> None:
+        if self._draft_after_id is not None:
+            try:
+                self.after_cancel(self._draft_after_id)
+            except Exception:
+                pass
+        # Save drafts with a small debounce to avoid excessive disk writes
+        self._draft_after_id = self.after(400, self._save_draft_now)
+
+    def _save_draft_now(self) -> None:
+        try:
+            text = self.text_widget.get("1.0", tk.END).rstrip()
+            self.draft_service.save_draft(self.instance_index, text)
+        except Exception:
+            pass
+        self._draft_after_id = None
+
+    def _update_title(self) -> None:
+        title_part = (
+            self.current_note.title
+            if (self.current_note and self.current_note.title)
+            else "Untitled"
+        )
+        self.title(f"Markdown Notes [#{self.instance_index}] - {title_part}")
 
     def on_open(self) -> None:
         file_path = filedialog.askopenfilename(
@@ -231,8 +313,10 @@ class MainWindow(tk.Tk):
         self.current_note = note
         self.text_widget.delete("1.0", tk.END)
         self.text_widget.insert("1.0", note.body)
-        self.title(f"Markdown Notes - {note.title}")
+        self._update_title()
         self._schedule_highlight()
+        self._schedule_draft_save()
+        self._update_status()
 
     def on_save(self) -> None:
         if self.current_note is None:
@@ -247,6 +331,12 @@ class MainWindow(tk.Tk):
                 return
             self.file_service.write(self.current_note)
             messagebox.showinfo("Saved", "Note saved successfully.")
+            # Clear draft upon successful save to a file
+            try:
+                self.draft_service.clear_draft(self.instance_index)
+            except Exception:
+                pass
+            self._update_status()
         except Exception as exc:
             messagebox.showerror("Save Failed", f"Could not save file:\n{exc}")
 
@@ -272,7 +362,53 @@ class MainWindow(tk.Tk):
             return
         try:
             target = self.file_service.write(self.current_note, Path(file_path))
-            self.title(f"Markdown Notes - {self.current_note.title}")
+            self._update_title()
             messagebox.showinfo("Saved", f"Saved to: {target}")
+            # Clear draft after saving as a new file
+            try:
+                self.draft_service.clear_draft(self.instance_index)
+            except Exception:
+                pass
+            self._update_status()
         except Exception as exc:
             messagebox.showerror("Save Failed", f"Could not save file:\n{exc}")
+
+    def on_save_current(self) -> None:
+        if self.current_note is None or not self.current_note.file_path:
+            messagebox.showinfo(
+                "No File",
+                "No file is currently open. Use Save As... to choose a location.",
+            )
+            return
+        self.current_note.body = self.text_widget.get("1.0", tk.END).rstrip()
+        try:
+            target = self.file_service.write(self.current_note)
+            self._update_title()
+            messagebox.showinfo("Saved", f"Saved to: {target}")
+            try:
+                self.draft_service.clear_draft(self.instance_index)
+            except Exception:
+                pass
+            self._update_status()
+        except Exception as exc:
+            messagebox.showerror("Save Failed", f"Could not save file:\n{exc}")
+
+    def _on_close(self) -> None:
+        # Persist latest draft and release the instance lock before closing
+        try:
+            if self._draft_after_id is not None:
+                try:
+                    self.after_cancel(self._draft_after_id)
+                except Exception:
+                    pass
+            self._save_draft_now()
+        except Exception:
+            pass
+        try:
+            self.draft_service.release_instance_index(self.instance_index)
+        except Exception:
+            pass
+        try:
+            self.destroy()
+        except Exception:
+            pass
