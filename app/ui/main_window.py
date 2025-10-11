@@ -7,6 +7,7 @@ from typing import Optional
 from app.models.note import Note
 from app.services.file_service import FileService
 from app.services.markdown_highlighter import MarkdownHighlighter
+from app.services.equation_formatter import EquationAutoFormatter
 from app.ui.theme import (
     DARK_THEME,
     ThemeColors,
@@ -29,6 +30,7 @@ class MainWindow(tk.Tk):
         self.current_note: Optional[Note] = Note(title="Untitled", body="")
         self.theme = theme
         self.highlighter = MarkdownHighlighter(debounce_ms=20, theme=self.theme)
+        self.eq_formatter = EquationAutoFormatter()
         self._highlight_after_id: Optional[str] = None
         self._dropdown: Optional[tk.Toplevel] = None
 
@@ -38,6 +40,11 @@ class MainWindow(tk.Tk):
 
         self._build_menu()
         self._build_editor()
+        # Attach auto-formatter bindings similar to the highlighter
+        try:
+            self.eq_formatter.attach(self.text_widget)
+        except Exception:
+            pass
         self._bind_live_highlighting()
 
         # Focus the editor on start for immediate typing
