@@ -34,8 +34,7 @@ class CodeRunner:
             tmp.write(code)
             tmp.flush()
 
-        # In frozen apps, re-invoking sys.executable runs the GUI again.
-        # Use the app's worker mode to execute code and capture results.
+        # In frozen apps, prefer invoking a dedicated worker executable.
         is_frozen = bool(getattr(sys, "frozen", False))
         result_path: Path | None = None
         try:
@@ -47,13 +46,30 @@ class CodeRunner:
                     rtmp.write("")
                     rtmp.flush()
 
-                cmd = [
-                    sys.executable,
-                    "--worker-run",
-                    str(code_path),
-                    "--result",
-                    str(result_path),
+                # Try to locate a sibling worker executable next to the frozen app
+                exec_path = Path(sys.executable)
+                worker_candidates = [
+                    exec_path.with_name("worker.exe"),
+                    exec_path.with_name("worker"),
                 ]
+                worker_path = next((p for p in worker_candidates if p.exists()), None)
+
+                if worker_path is not None:
+                    cmd = [
+                        str(worker_path),
+                        str(code_path),
+                        "--result",
+                        str(result_path),
+                    ]
+                else:
+                    # Backward-compat: fall back to legacy hidden contract in main
+                    cmd = [
+                        sys.executable,
+                        "--worker-run",
+                        str(code_path),
+                        "--result",
+                        str(result_path),
+                    ]
 
                 creationflags = 0
                 startupinfo = None
