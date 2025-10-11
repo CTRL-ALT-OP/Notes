@@ -158,7 +158,7 @@ class MainWindow(tk.Tk):
         # Position below the File button
         bx = self.file_btn.winfo_rootx()
         by = self.file_btn.winfo_rooty() + self.file_btn.winfo_height()
-        self._dropdown.wm_geometry(f"220x110+{bx}+{by}")
+        self._dropdown.wm_geometry(f"220x148+{bx}+{by}")
 
         # Build menu items
         container = tk.Frame(
@@ -166,6 +166,7 @@ class MainWindow(tk.Tk):
         )
         container.pack(fill=tk.BOTH, expand=True)
 
+        self._add_dropdown_item(container, "New", self.on_new)
         self._add_dropdown_item(container, "Open...", self.on_open)
         self._add_dropdown_item(container, "Save (Current File)", self.on_save_current)
         self._add_dropdown_item(container, "Save As...", self.on_save_as)
