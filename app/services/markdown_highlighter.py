@@ -1,0 +1,193 @@
+from __future__ import annotations
+import re
+import tkinter as tk
+import tkinter.font as tkfont
+from typing import List, Tuple
+
+
+class MarkdownHighlighter:
+    """Applies Markdown styling to a Tkinter Text widget using tags.
+
+    This is regex-based and optimized for responsiveness over completeness.
+    It highlights common constructs: headings, bold/italic/strikethrough,
+    inline code, fenced code blocks, blockquotes, lists, and links.
+    """
+
+    def __init__(self, debounce_ms: int = 120) -> None:
+        self.debounce_ms = debounce_ms
+        self._configured_widget_id: int | None = None
+
+        # Precompile patterns
+        self._re_heading = re.compile(r"^(#{1,6})[\t ]+(.+)$", re.MULTILINE)
+        self._re_bold = re.compile(r"(\*\*|__)([^\n]+?)\1")
+        self._re_italic = re.compile(
+            r"(?<!\*)\*([^\n*]+?)\*(?!\*)|(?<!_)_([^\n_]+?)_(?!_)"
+        )
+        self._re_bold_italic = re.compile(r"(\*\*\*|___)([^\n]+?)\1")
+        self._re_strike = re.compile(r"~~([^\n]+?)~~")
+        self._re_inline_code = re.compile(r"`([^`\n]+?)`")
+        self._re_fenced_code = re.compile(r"^```[^\n]*\n[\s\S]*?^```", re.MULTILINE)
+        self._re_blockquote = re.compile(r"^>[\t ]?.*$", re.MULTILINE)
+        self._re_list = re.compile(
+            r"^(?:[\t ]*[-*+][\t ]+|[\t ]*\d+\.[\t ]+).*$", re.MULTILINE
+        )
+        self._re_link = re.compile(r"\[([^\]\n]+)\]\(([^)\n]+)\)")
+
+        self._all_tags = [
+            "md_h1",
+            "md_h2",
+            "md_h3",
+            "md_h4",
+            "md_h5",
+            "md_h6",
+            "md_bold",
+            "md_italic",
+            "md_bold_italic",
+            "md_strike",
+            "md_inline_code",
+            "md_code_block",
+            "md_blockquote",
+            "md_list_item",
+            "md_link_text",
+            "md_link_url",
+        ]
+
+    def _idx(self, char_index: int) -> str:
+        return f"1.0+{char_index}c"
+
+    def configure_tags(self, text: tk.Text) -> None:
+        """Configure fonts and tag styles. Call once per Text widget."""
+        if self._configured_widget_id == id(text):
+            return
+
+        base_font = tkfont.nametofont(text.cget("font")).copy()
+        base_size = int(base_font.cget("size"))
+
+        def mk_font(
+            weight: str | None = None,
+            slant: str | None = None,
+            size_delta: int = 0,
+            family: str | None = None,
+        ) -> tkfont.Font:
+            f = tkfont.Font(font=base_font)
+            if weight:
+                f.configure(weight=weight)
+            if slant:
+                f.configure(slant=slant)
+            if size_delta:
+                f.configure(size=base_size + size_delta)
+            if family:
+                f.configure(family=family)
+            return f
+
+        # Headings
+        text.tag_config(
+            "md_h1", font=mk_font(weight="bold", size_delta=8), foreground="#2b6cb0"
+        )
+        text.tag_config(
+            "md_h2", font=mk_font(weight="bold", size_delta=6), foreground="#2b6cb0"
+        )
+        text.tag_config(
+            "md_h3", font=mk_font(weight="bold", size_delta=4), foreground="#2b6cb0"
+        )
+        text.tag_config(
+            "md_h4", font=mk_font(weight="bold", size_delta=2), foreground="#2b6cb0"
+        )
+        text.tag_config(
+            "md_h5", font=mk_font(weight="bold", size_delta=1), foreground="#2b6cb0"
+        )
+        text.tag_config("md_h6", font=mk_font(weight="bold"), foreground="#2b6cb0")
+
+        # Emphasis
+        text.tag_config("md_bold", font=mk_font(weight="bold"))
+        text.tag_config("md_italic", font=mk_font(slant="italic"))
+        text.tag_config("md_bold_italic", font=mk_font(weight="bold", slant="italic"))
+        text.tag_config("md_strike", overstrike=True)
+
+        # Code
+        code_font_family = "Consolas"
+        text.tag_config(
+            "md_inline_code",
+            background="#f6f8fa",
+            font=mk_font(family=code_font_family),
+        )
+        text.tag_config(
+            "md_code_block",
+            background="#f6f8fa",
+            lmargin1=20,
+            lmargin2=20,
+            spacing1=4,
+            spacing3=4,
+            font=mk_font(family=code_font_family),
+        )
+
+        # Block elements
+        text.tag_config("md_blockquote", foreground="#6a737d", lmargin1=20, lmargin2=20)
+        text.tag_config("md_list_item", foreground="#374151")
+
+        # Links
+        text.tag_config("md_link_text", foreground="#1a73e8", underline=True)
+        text.tag_config("md_link_url", foreground="#6a737d")
+
+        self._configured_widget_id = id(text)
+
+    def clear(self, text: tk.Text) -> None:
+        for tag in self._all_tags:
+            text.tag_remove(tag, "1.0", tk.END)
+
+    def _apply_span(self, text: tk.Text, tag: str, start: int, end: int) -> None:
+        if start < end:
+            text.tag_add(tag, self._idx(start), self._idx(end))
+
+    def highlight(self, text: tk.Text) -> None:
+        self.configure_tags(text)
+        self.clear(text)
+        content = text.get("1.0", tk.END)
+
+        # Fenced code blocks: apply whole block styling first to avoid conflicting highlights
+        for m in self._re_fenced_code.finditer(content):
+            self._apply_span(text, "md_code_block", m.start(), m.end())
+
+        # Headings
+        for m in self._re_heading.finditer(content):
+            hashes, heading_text = m.group(1), m.group(2)
+            level = min(len(hashes), 6)
+            tag = f"md_h{level}"
+            # Apply to the heading text only (exclude leading # and space)
+            text_start = m.start(2)
+            text_end = m.end(2)
+            self._apply_span(text, tag, text_start, text_end)
+
+        # Bold-italic (*** or ___) first
+        for m in self._re_bold_italic.finditer(content):
+            self._apply_span(text, "md_bold_italic", m.start(2), m.end(2))
+
+        # Bold then italic
+        for m in self._re_bold.finditer(content):
+            self._apply_span(text, "md_bold", m.start(2), m.end(2))
+
+        for m in self._re_italic.finditer(content):
+            # pattern has two alternatives; choose the matched group
+            grp = 1 if m.group(1) is not None else 2
+            self._apply_span(text, "md_italic", m.start(grp), m.end(grp))
+
+        # Strikethrough
+        for m in self._re_strike.finditer(content):
+            self._apply_span(text, "md_strike", m.start(1), m.end(1))
+
+        # Inline code
+        for m in self._re_inline_code.finditer(content):
+            self._apply_span(text, "md_inline_code", m.start(1), m.end(1))
+
+        # Blockquote lines
+        for m in self._re_blockquote.finditer(content):
+            self._apply_span(text, "md_blockquote", m.start(), m.end())
+
+        # List items
+        for m in self._re_list.finditer(content):
+            self._apply_span(text, "md_list_item", m.start(), m.end())
+
+        # Links: style link text and show URL in subtle color
+        for m in self._re_link.finditer(content):
+            self._apply_span(text, "md_link_text", m.start(1), m.end(1))
+            self._apply_span(text, "md_link_url", m.start(2), m.end(2))

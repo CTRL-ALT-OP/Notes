@@ -6,6 +6,7 @@ from typing import Optional
 
 from app.models.note import Note
 from app.services.file_service import FileService
+from app.services.markdown_highlighter import MarkdownHighlighter
 
 
 class MainWindow(tk.Tk):
@@ -18,9 +19,12 @@ class MainWindow(tk.Tk):
 
         self.file_service = file_service
         self.current_note: Optional[Note] = Note(title="Untitled", body="")
+        self.highlighter = MarkdownHighlighter(debounce_ms=20)
+        self._highlight_after_id: Optional[str] = None
 
         self._build_menu()
         self._build_editor()
+        self._bind_live_highlighting()
 
         # Focus the editor on start for immediate typing
         self.text_widget.focus_set()
@@ -39,6 +43,34 @@ class MainWindow(tk.Tk):
         self.text_widget = tk.Text(self, wrap=tk.WORD, undo=True)
         self.text_widget.pack(fill=tk.BOTH, expand=True)
         self.text_widget.insert("1.0", self.current_note.body)
+
+    def _bind_live_highlighting(self) -> None:
+        # Bind to Tk's modified virtual event for edits/undo/redo/paste
+        self.text_widget.bind("<<Modified>>", self._on_text_modified)
+        # Initial highlight
+        self._schedule_highlight()
+
+    def _on_text_modified(self, _event=None) -> None:
+        # Reset the modified flag or the event will not fire again
+        try:
+            self.text_widget.edit_modified(False)
+        except Exception:
+            pass
+        self._schedule_highlight()
+
+    def _schedule_highlight(self) -> None:
+        if self._highlight_after_id is not None:
+            try:
+                self.after_cancel(self._highlight_after_id)
+            except Exception:
+                pass
+        self._highlight_after_id = self.after(
+            self.highlighter.debounce_ms, self._apply_highlighting
+        )
+
+    def _apply_highlighting(self) -> None:
+        self.highlighter.highlight(self.text_widget)
+        self._highlight_after_id = None
 
     def on_open(self) -> None:
         file_path = filedialog.askopenfilename(
@@ -61,6 +93,7 @@ class MainWindow(tk.Tk):
         self.text_widget.delete("1.0", tk.END)
         self.text_widget.insert("1.0", note.body)
         self.title(f"Markdown Notes - {note.title}")
+        self._schedule_highlight()
 
     def on_save(self) -> None:
         if self.current_note is None:
