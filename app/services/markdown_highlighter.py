@@ -14,6 +14,7 @@ try:
 except Exception:
     _PYGMENTS_AVAILABLE = False
 from app.services.link_handler import LinkHandler
+from app.services.code_runner import CodeRunner
 from app.ui.theme import ThemeColors, DARK_THEME
 
 
@@ -25,6 +26,10 @@ class MarkdownHighlighter:
     inline code, fenced code blocks, blockquotes, lists, and links.
     """
 
+    # Output section markers (use these variables; do not hard-code elsewhere)
+    OUTPUT_HEADER = "### Output: ----\n"
+    OUTPUT_FOOTER = "--------------------\n"
+
     def __init__(
         self,
         debounce_ms: int = 120,
@@ -35,6 +40,7 @@ class MarkdownHighlighter:
         self.theme: ThemeColors = theme or DARK_THEME
         self._configured_widget_id: int | None = None
         self._link_handler: LinkHandler = link_handler or LinkHandler()
+        self._runner = CodeRunner()
 
         # Precompile patterns
         self._re_heading = re.compile(r"^(#{1,6})[\t ]+(.+)$", re.MULTILINE)
@@ -266,11 +272,17 @@ class MarkdownHighlighter:
         # Remove dynamically created link target tags
         try:
             for tag in text.tag_names():
-                if str(tag).startswith("md_link_target_"):
+                name = str(tag)
+                if (
+                    name.startswith("md_link_target_")
+                    or name.startswith("md_code_run_")
+                    or name.startswith("md_code_block_")
+                    or name.startswith("md_code_body_")
+                    or name.startswith("md_code_lang_")
+                ):
                     try:
                         text.tag_delete(tag)
                     except Exception:
-                        # Fallback: at least remove range
                         text.tag_remove(tag, "1.0", tk.END)
         except Exception:
             pass
@@ -285,14 +297,78 @@ class MarkdownHighlighter:
         content = text.get("1.0", tk.END)
 
         # Fenced code blocks: apply whole block styling first to avoid conflicting highlights
-        for m in self._re_fenced_code.finditer(content):
+        for idx, m in enumerate(self._re_fenced_code.finditer(content)):
             self._apply_span(text, "md_code_block", m.start(), m.end())
+            # Unique tags to track this block + clickable lang
+            block_tag = f"md_code_block_{idx}"
+            body_tag = f"md_code_body_{idx}"
+            lang_tag = f"md_code_lang_{idx}"
+            text.tag_add(block_tag, self._idx(m.start()), self._idx(m.end()))
+            body_start = m.start("body")
+            body_end = m.end("body")
+            if body_start is not None and body_end is not None:
+                text.tag_add(body_tag, self._idx(body_start), self._idx(body_end))
+            lang_start = m.start("lang")
+            lang_end = m.end("lang")
+            lang_raw = (m.group("lang") or "").strip()
+            if lang_start is not None and lang_end is not None and lang_raw:
+                # Narrow to trimmed span for nicer click target
+                # Find trimmed bounds relative to lang group
+                lang_full = m.group("lang")
+                ltrim = len(lang_full) - len(lang_full.lstrip())
+                rtrim = len(lang_full) - len(lang_full.rstrip())
+                lang_s = lang_start + ltrim
+                lang_e = lang_end - rtrim
+                text.tag_add(lang_tag, self._idx(lang_s), self._idx(lang_e))
+                # Make it look interactive
+                try:
+                    text.tag_config(lang_tag, underline=True)
+                except Exception:
+                    pass
+
             # Apply syntax tokens (pygments) inside the body if available
             try:
                 self._highlight_code_block_tokens(text, content, m)
             except Exception:
-                # Fail silently; keep basic block styling
                 pass
+
+            # Bind click for python blocks
+            if (lang_raw.lower() in ("python", "py", "py3", "py2")) and (
+                body_start is not None and body_end is not None
+            ):
+                run_tag = f"md_code_run_{idx}"
+                # Click region: language tag if present; otherwise body
+                try:
+                    if lang_start is not None and lang_end is not None and lang_raw:
+                        text.tag_add(run_tag, self._idx(lang_s), self._idx(lang_e))
+                    else:
+                        text.tag_add(
+                            run_tag, self._idx(body_start), self._idx(body_end)
+                        )
+                except Exception:
+                    text.tag_add(run_tag, self._idx(body_start), self._idx(body_end))
+
+                def _on_enter(e):
+                    try:
+                        e.widget.configure(cursor="hand2")
+                    except Exception:
+                        pass
+
+                def _on_leave(e):
+                    try:
+                        e.widget.configure(cursor="")
+                    except Exception:
+                        pass
+
+                def _on_click(_e, i=idx, btag=block_tag, bdytag=body_tag):
+                    try:
+                        self._run_python_block(text, i, btag, bdytag)
+                    except Exception:
+                        pass
+
+                text.tag_bind(run_tag, "<Enter>", _on_enter)
+                text.tag_bind(run_tag, "<Leave>", _on_leave)
+                text.tag_bind(run_tag, "<Button-1>", _on_click)
 
         # Track spans for composing nested styles
         bold_spans: List[Tuple[int, int]] = []
@@ -517,3 +593,54 @@ class MarkdownHighlighter:
                 end = start + len(tok_text)
                 self._apply_span(text, tag, start, end)
             offset += len(tok_text)
+
+    # ---------- Running python code blocks ----------
+    def _run_python_block(
+        self, text: tk.Text, index: int, block_tag: str, body_tag: str
+    ) -> None:
+        # Get code text from the body tag
+        ranges = text.tag_ranges(body_tag)
+        if not ranges or len(ranges) < 2:
+            return
+        start_idx, end_idx = ranges[0], ranges[1]
+        code = text.get(start_idx, end_idx)
+        rc, out, err = self._runner.run_python(code)
+        combined = (out or "") + (err or "")
+        display = combined if combined.strip() else "none\n"
+        header = self.OUTPUT_HEADER
+        footer = self.OUTPUT_FOOTER
+        payload = header + display + ("" if display.endswith("\n") else "\n") + footer
+
+        # Where to insert: after the code block
+        branges = text.tag_ranges(block_tag)
+        if not branges or len(branges) < 2:
+            return
+        block_end = branges[1]
+
+        # If an existing output section exists directly below, delete it first by scanning
+        try:
+            # Read a bounded window after the block to search for header/footer
+            window = text.get(block_end, f"{block_end}+20000c")
+            # Allow leading blank lines
+            lead = 0
+            while lead < len(window) and window[lead] in "\r\n":
+                lead += 1
+            if window[lead:].startswith(header):
+                rel_footer = window[lead:].find(footer)
+                if rel_footer != -1:
+                    total = lead + rel_footer + len(footer)
+                    text.delete(block_end, f"{block_end}+{total}c")
+        except Exception:
+            pass
+
+        # Ensure a separating newline
+        try:
+            prev_char = text.get(f"{block_end}-1c", block_end)
+        except Exception:
+            prev_char = "\n"
+        if prev_char != "\n":
+            text.insert(block_end, "\n")
+            block_end = f"{block_end}+1c"
+
+        # Insert the new output
+        text.insert(block_end, payload)
