@@ -49,7 +49,10 @@ class CatalogService:
             data = {"folders": [], "next_id": 1}
         self._folders = {}
         self._known_paths = set()
-        self._next_id = int(data.get("next_id", 1))
+        try:
+            self._next_id = int(data.get("next_id", 1))
+        except (ValueError, TypeError):
+            self._next_id = 1
         for f in data.get("folders", []):
             folder = CatalogFolder(
                 id=str(f.get("id")),
