@@ -59,7 +59,7 @@ class LinkHandler:
         if expanded.lower().startswith("file://"):
             with contextlib.suppress(Exception):
                 path = Path(expanded[7:])
-        if path.suffix.lower() == ".py":
+        if path.suffix.lower() in {".py", ".pyw"}:
             self._run_python_file_in_terminal(path)
             return
 
