@@ -30,6 +30,17 @@ class ListAutoFill:
         text_widget.bind(
             "<ISO_Left_Tab>", lambda e: self._on_shift_tab(text_widget), add="+"
         )
+        # After deletion/backspace, renumber ordered lists if needed (post-edit)
+        text_widget.bind(
+            "<KeyRelease-BackSpace>",
+            lambda e: self._on_post_delete(text_widget),
+            add="+",
+        )
+        text_widget.bind(
+            "<KeyRelease-Delete>",
+            lambda e: self._on_post_delete(text_widget),
+            add="+",
+        )
 
     def _on_return(self, text: tk.Text) -> str | None:
         try:
@@ -74,6 +85,10 @@ class ListAutoFill:
 
             # Default: insert newline + next marker from caret position
             text.insert("insert", next_prefix)
+            # If we inserted an ordered-list item, renumber following same-level items
+            if mol:
+                with contextlib.suppress(Exception):
+                    self._renumber_ordered_block(text, int(line_no) + 1)
             return "break"
         except Exception:
             return None
@@ -106,6 +121,24 @@ class ListAutoFill:
             return "break"
         except Exception:
             return None
+
+    def _on_post_delete(self, text: tk.Text) -> None:
+        """Post-delete handler to keep ordered lists renumbered.
+
+        Tries current line, then next, then previous to find an ordered item
+        and renumbers the contiguous same-level block.
+        """
+        try:
+            insert_index = text.index("insert")
+            line_no = int(insert_index.split(".")[0])
+            candidates = (line_no, line_no + 1, max(1, line_no - 1))
+            for ln in candidates:
+                line = text.get(f"{ln}.0", f"{ln}.end")
+                if self._re_ol.match(line):
+                    self._renumber_ordered_block(text, ln)
+                    break
+        except Exception:
+            return
 
     def _on_shift_tab(self, text: tk.Text) -> str | None:
         try:
@@ -200,7 +233,7 @@ class ListAutoFill:
                 num_start_col = len(cm.group("indent"))
                 num_end_col = num_start_col + len(cm.group("num")) + 1  # include '.'
                 text.delete(f"{ln}.{num_start_col}", f"{ln}.{num_end_col}")
-                text.insert(f"{ln}.{num_start_col}", f"{current_num}. ")
+                text.insert(f"{ln}.{num_start_col}", f"{current_num}.")
                 ln += 1
         except Exception:
             return
