@@ -50,6 +50,7 @@ class QuickPasteWindow(tk.Toplevel):
         self.var_auto = tk.BooleanVar(value=True)
         self.var_ordinal_only = tk.BooleanVar(value=True)
         self.var_replace_tags = tk.BooleanVar(value=True)
+        self.var_incr_text = tk.BooleanVar(value=True)
         tk.Checkbutton(opts, text="Auto-incr", variable=self.var_auto).pack(
             side=tk.LEFT
         )
@@ -57,6 +58,9 @@ class QuickPasteWindow(tk.Toplevel):
             side=tk.LEFT, padx=(8, 0)
         )
         tk.Checkbutton(opts, text="Replace tags", variable=self.var_replace_tags).pack(
+            side=tk.LEFT, padx=(8, 0)
+        )
+        tk.Checkbutton(opts, text="Incr text", variable=self.var_incr_text).pack(
             side=tk.LEFT, padx=(8, 0)
         )
 
@@ -87,6 +91,7 @@ class QuickPasteWindow(tk.Toplevel):
             auto_increment=self.var_auto.get(),
             ordinal_only=self.var_ordinal_only.get(),
             replace_tags=self.var_replace_tags.get(),
+            incr_text=self.var_incr_text.get(),
         )
         # Pass initial and options back to parent to manage the sequence and clipboard
         try:

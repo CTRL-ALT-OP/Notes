@@ -63,11 +63,14 @@ class TextNumberIncrementer:
 
     _re_number = re.compile(r"\b(\d+)(st|nd|rd|th)?\b", flags=re.IGNORECASE)
 
-    def increment(self, text: str, ordinal_only: bool = False) -> str:
+    def increment(
+        self, text: str, ordinal_only: bool = False, increment_text: bool = True
+    ) -> str:
         # Increment numeric forms first
         text = self._increment_numeric(text, ordinal_only)
         # Then increment textual forms
-        text = self._increment_textual(text, ordinal_only)
+        if increment_text:
+            text = self._increment_textual(text, ordinal_only)
         return text
 
     def _increment_numeric(self, text: str, ordinal_only: bool) -> str:

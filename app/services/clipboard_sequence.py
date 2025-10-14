@@ -11,6 +11,7 @@ class SequenceOptions:
     auto_increment: bool = True
     ordinal_only: bool = True
     replace_tags: bool = True
+    incr_text: bool = True
 
 
 class ClipboardSequenceManager:
@@ -56,7 +57,9 @@ class ClipboardSequenceManager:
         next_text = self._last_generated
         if self._options.auto_increment:
             next_text = self._incr.increment(
-                next_text, ordinal_only=self._options.ordinal_only
+                next_text,
+                ordinal_only=self._options.ordinal_only,
+                increment_text=self._options.incr_text,
             )
         if self._options.replace_tags:
             next_text = self._tagger.replace(next_text)
