@@ -34,6 +34,11 @@ Dark‑themed Tkinter markdown editor with live highlighting, drafts, a simple c
       - Replaces tags like `{min}` (current minute)
       - Auto-incr increments numbers each paste; with Ordinal-only, skips cardinal words
       - Incr text toggles whether textual numbers (e.g., one/first) are incremented
+  - Ctrl+L toggles List paste: select lines, then paste each line on Ctrl+V.
+    - Splits selection by line, strips leading list markers (e.g., `1.`, `-`) and whitespace
+    - Seeds clipboard with the first cleaned line; advances to the next on each paste
+    - Auto-stops at the end and removes the “List paste” label shown at bottom-right
+    - Press Ctrl+L again to stop early and remove the label
 
 ### Project layout (key modules)
 - `app/ui/main_window.py` — main window, editor, sidebar, menus
