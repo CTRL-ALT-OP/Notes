@@ -3,7 +3,7 @@ import argparse
 import io
 import json
 import traceback
-from contextlib import redirect_stdout, redirect_stderr
+from contextlib import redirect_stdout, redirect_stderr, suppress
 from pathlib import Path
 
 
@@ -40,7 +40,7 @@ def run_snippet(code_file: str, result_file: str | None) -> int:
         exit_code = 1
 
     if result_file:
-        try:
+        with suppress(Exception):
             Path(result_file).write_text(
                 json.dumps(
                     {
@@ -51,9 +51,6 @@ def run_snippet(code_file: str, result_file: str | None) -> int:
                 ),
                 encoding="utf-8",
             )
-        except Exception:
-            pass
-
     return exit_code
 
 

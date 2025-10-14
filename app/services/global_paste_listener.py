@@ -43,24 +43,20 @@ class GlobalPasteListener:
             )
 
             def on_press(key):  # type: ignore[no-redef]
-                try:
+                with contextlib.suppress(Exception):
                     canonical = self._listener.canonical(key) if self._listener else key
                     if self._hk_ctrl_v:
                         self._hk_ctrl_v.press(canonical)
                     if self._hk_cmd_v:
                         self._hk_cmd_v.press(canonical)
-                except Exception:
-                    pass
 
             def on_release(key):  # type: ignore[no-redef]
-                try:
+                with contextlib.suppress(Exception):
                     canonical = self._listener.canonical(key) if self._listener else key
                     if self._hk_ctrl_v:
                         self._hk_ctrl_v.release(canonical)
                     if self._hk_cmd_v:
                         self._hk_cmd_v.release(canonical)
-                except Exception:
-                    pass
 
             self._listener = keyboard.Listener(on_press=on_press, on_release=on_release)
             self._listener.daemon = True
