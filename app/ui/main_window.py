@@ -56,6 +56,10 @@ class MainWindow(tk.Tk):
         self.catalog = CatalogService()
         self._global_paste = GlobalPasteListener()
         self._seq_manager: ClipboardSequenceManager | None = None
+        # List paste state
+        self._list_paste_active: bool = False
+        self._list_paste_items: list[str] = []
+        self._list_paste_index: int = 0
 
         # Sidebar/Tree state
         self.sidebar_width = 150
@@ -105,6 +109,9 @@ class MainWindow(tk.Tk):
         self.bind("<Control-n>", lambda e: self.on_new())
         self.bind("<Control-b>", lambda e: self._toggle_sidebar())
         self.bind("<Control-q>", lambda e: self._open_quick_paste())
+        # Ctrl+L toggles List paste mode
+        self.bind("<Control-l>", lambda e: self._toggle_list_paste())
+        self.bind("<Control-L>", lambda e: self._toggle_list_paste())
 
     def _build_menu(self) -> None:
         # Custom dark menu bar using a Frame + faux button that opens a custom dropdown
@@ -379,8 +386,7 @@ class MainWindow(tk.Tk):
             self._seq_manager = ClipboardSequenceManager()
             first = self._seq_manager.set_initial(initial, options)
             with contextlib.suppress(Exception):
-                self.clipboard_clear()
-                self.clipboard_append(first)
+                self._set_clipboard_text(first)
             # Start listening for global paste after clipboard is seeded
             self._global_paste.start(self._on_global_paste)
             # Dismiss overlay if present
@@ -399,6 +405,10 @@ class MainWindow(tk.Tk):
     def _on_global_paste(self) -> None:
         # Called from background thread in pynput; schedule back to Tk main thread
         def _process():
+            # If list paste is active, advance through its items first
+            if self._list_paste_active:
+                self._advance_list_paste()
+                return
             if not self._seq_manager:
                 self._global_paste.stop()
                 return
@@ -410,15 +420,16 @@ class MainWindow(tk.Tk):
             if nxt is None:
                 # Stop tracking when clipboard diverges
                 self._seq_manager = None
-                self._global_paste.stop()
+                if not self._list_paste_active:
+                    self._global_paste.stop()
                 return
             try:
-                self.clipboard_clear()
-                self.clipboard_append(nxt)
+                self._set_clipboard_text(nxt)
             except Exception:
                 # Give up if clipboard fails
                 self._seq_manager = None
-                self._global_paste.stop()
+                if not self._list_paste_active:
+                    self._global_paste.stop()
 
         with contextlib.suppress(Exception):
             self.after(0, _process)
@@ -502,6 +513,16 @@ class MainWindow(tk.Tk):
             padx=8,
         )
         self.status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # Right-aligned status indicator for List paste mode
+        self.status_right_label = tk.Label(
+            self.status_frame,
+            text="",
+            bg=self.theme.menubar_bg,
+            fg=self.theme.menubar_fg,
+            anchor="e",
+            padx=8,
+        )
+        self.status_right_label.pack(side=tk.RIGHT)
 
     # ---------- Sidebar toggle ----------
     def _toggle_sidebar(self) -> None:
@@ -907,6 +928,86 @@ class MainWindow(tk.Tk):
             else "Untitled"
         )
         self.title(f"Markdown Notes [#{self.instance_index}] - {title_part}")
+
+    # ---------- List paste (Ctrl+L) ----------
+    def _toggle_list_paste(self) -> str | None:
+        if self._list_paste_active:
+            self._stop_list_paste()
+            return "break"
+        # Start new list paste using current selection
+        try:
+            ranges = self.text_widget.tag_ranges("sel")
+            selected = self.text_widget.get(ranges[0], ranges[1]) if ranges else ""
+        except Exception:
+            selected = ""
+        items = self._parse_selection_to_list_items(selected)
+        if not items:
+            # Nothing to do
+            return "break"
+        self._start_list_paste(items)
+        return "break"
+
+    def _start_list_paste(self, items: list[str]) -> None:
+        self._list_paste_items = items
+        self._list_paste_index = 0
+        self._list_paste_active = True
+        self._update_list_paste_label()
+        # Seed clipboard with first item
+        first = self._list_paste_items[self._list_paste_index]
+        with contextlib.suppress(Exception):
+            self._set_clipboard_text(first)
+        # Start listening for global paste events
+        self._global_paste.start(self._on_global_paste)
+
+    def _advance_list_paste(self) -> None:
+        if not self._list_paste_active:
+            return
+        # Move to next item
+        self._list_paste_index += 1
+        if self._list_paste_index >= len(self._list_paste_items):
+            # Completed; auto-stop
+            self._stop_list_paste()
+            return
+        nxt = self._list_paste_items[self._list_paste_index]
+        with contextlib.suppress(Exception):
+            self._set_clipboard_text(nxt)
+
+    def _stop_list_paste(self) -> None:
+        self._list_paste_active = False
+        self._list_paste_items = []
+        self._list_paste_index = 0
+        self._update_list_paste_label()
+        # Only stop the global listener if no other sequence is active
+        if not self._seq_manager:
+            with contextlib.suppress(Exception):
+                self._global_paste.stop()
+
+    def _update_list_paste_label(self) -> None:
+        text = "List paste" if self._list_paste_active else ""
+        with contextlib.suppress(Exception):
+            self.status_right_label.configure(text=text)
+
+    @staticmethod
+    def _parse_selection_to_list_items(selected: str) -> list[str]:
+        import re
+
+        results: list[str] = []
+        marker_pattern = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+")
+        for raw in selected.splitlines():
+            stripped = raw.strip()
+            if not stripped:
+                continue
+            if cleaned := marker_pattern.sub("", stripped).strip():
+                results.append(cleaned)
+        return results
+
+    def _set_clipboard_text(self, text: str) -> None:
+        # Make clipboard updates more reliable on Windows by flushing Tk events.
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        with contextlib.suppress(Exception):
+            self.update_idletasks()
+            self.update()
 
     def on_open(self) -> None:
         file_path = filedialog.askopenfilename(

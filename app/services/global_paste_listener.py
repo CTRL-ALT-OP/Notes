@@ -79,10 +79,5 @@ class GlobalPasteListener:
     def _invoke(self) -> None:
         if not (self._active and self._callback is not None):
             return
-        now = time.monotonic()
-        # Debounce multiple triggers while Ctrl+V is held
-        if self._last_invoke_ts is not None and (now - self._last_invoke_ts) < 0.25:
-            return
-        self._last_invoke_ts = now
         with contextlib.suppress(Exception):
             self._callback()
