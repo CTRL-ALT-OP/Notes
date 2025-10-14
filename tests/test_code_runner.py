@@ -10,7 +10,7 @@ def test_run_python_success(tmp_path: Path, monkeypatch):
     rc, out, err = CodeRunner().run_python("print('hello')")
     assert rc == 0
     assert out.strip() == "hello"
-    assert err.strip() == "" or err.strip() == "None"
+    assert err.strip() in ["", "None"]
 
 
 def test_run_python_timeout(monkeypatch):

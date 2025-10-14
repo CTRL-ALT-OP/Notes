@@ -49,8 +49,7 @@ class ClipboardService:
             stripped = raw.strip()
             if not stripped:
                 continue
-            cleaned = marker_pattern.sub("", stripped).strip()
-            if cleaned:
+            if cleaned := marker_pattern.sub("", stripped).strip():
                 results.append(cleaned)
         return results
 
@@ -74,8 +73,7 @@ class ClipboardService:
     def start_sequence(self, initial: str, options: SequenceOptions) -> str:
         """Begin a sequence paste session. Returns the first clipboard value."""
         self._sequence = ClipboardSequenceManager()
-        first = self._sequence.set_initial(initial, options)
-        return first
+        return self._sequence.set_initial(initial, options)
 
     def clear_sequence(self) -> None:
         self._sequence = None

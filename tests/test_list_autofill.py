@@ -14,9 +14,7 @@ class FakeText:
     def get(self, start: str, end: str):  # noqa: ARG002
         if start.startswith("1.") and end == "1.end":
             return self.line
-        if start == "1.0" and end == "1.end":
-            return self.line
-        return ""
+        return self.line if start == "1.0" and end == "1.end" else ""
 
     def insert(self, where: str, s: str):  # noqa: ARG002
         self._inserted += s

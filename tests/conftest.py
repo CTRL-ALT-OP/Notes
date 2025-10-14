@@ -1,3 +1,4 @@
+import contextlib
 import sys
 from types import SimpleNamespace, ModuleType
 from pathlib import Path
@@ -7,7 +8,6 @@ def _install_tkinter_mocks() -> None:
     # Build proper module objects so imports like `import tkinter.font as tkfont` work
     tk_mod = ModuleType("tkinter")
 
-    # Minimal tk.Text-like type and constants expected by services
     class _DummyText:
         pass
 
@@ -39,9 +39,7 @@ def _install_tkinter_mocks() -> None:
         def cget(self, key: str):
             if key == "size":
                 return self._size
-            if key == "family":
-                return self._family
-            return None
+            return self._family if key == "family" else None
 
         def copy(self):
             f = _Font()
@@ -68,9 +66,7 @@ def _install_tkinter_mocks() -> None:
 
 def pytest_configure(config):
     # Ensure repository root is importable as a package root (so 'app' works)
-    try:
+    with contextlib.suppress(Exception):
         root = Path(__file__).resolve().parents[1]
         sys.path.insert(0, str(root))
-    except Exception:
-        pass
     _install_tkinter_mocks()

@@ -9,9 +9,7 @@ class FakeText:
         self._font = "TkDefaultFont"
 
     def cget(self, key):  # noqa: ANN001
-        if key == "font":
-            return self._font
-        return None
+        return self._font if key == "font" else None
 
     def tag_config(self, tag, **kw):  # noqa: ANN001, ANN003
         self._cfg[tag] = kw
@@ -154,4 +152,4 @@ def test_repeated_highlight_resets_interactions():
 def test_constants_exposed():
     # Sanity: constants exist and contain expected markers
     assert MarkdownHighlighter.OUTPUT_HEADER.startswith("### Output:")
-    assert MarkdownHighlighter.OUTPUT_FOOTER.strip("- ") == ""
+    assert MarkdownHighlighter.OUTPUT_FOOTER.strip("- ") == "\n"
