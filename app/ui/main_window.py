@@ -22,6 +22,9 @@ from app.ui.theme import (
     apply_theme_to_root,
     apply_windows_dark_title_bar,
 )
+from app.ui.quick_paste_window import QuickPasteWindow
+from app.services.clipboard_sequence import ClipboardSequenceManager, SequenceOptions
+from app.services.global_paste_listener import GlobalPasteListener
 
 
 class MainWindow(tk.Tk):
@@ -51,6 +54,8 @@ class MainWindow(tk.Tk):
         self._dropdown: Optional[tk.Toplevel] = None
         self._draft_after_id: Optional[str] = None
         self.catalog = CatalogService()
+        self._global_paste = GlobalPasteListener()
+        self._seq_manager: ClipboardSequenceManager | None = None
 
         # Sidebar/Tree state
         self.sidebar_width = 150
@@ -99,6 +104,7 @@ class MainWindow(tk.Tk):
         self.bind("<Control-o>", lambda e: self.on_open())
         self.bind("<Control-n>", lambda e: self.on_new())
         self.bind("<Control-b>", lambda e: self._toggle_sidebar())
+        self.bind("<Control-q>", lambda e: self._open_quick_paste())
 
     def _build_menu(self) -> None:
         # Custom dark menu bar using a Frame + faux button that opens a custom dropdown
@@ -360,6 +366,53 @@ class MainWindow(tk.Tk):
         self.text_widget.insert("1.0", self.current_note.body)
 
         self._refresh_tree()
+
+    def _open_quick_paste(self) -> str | None:
+        try:
+            ranges = self.text_widget.tag_ranges("sel")
+            selected = self.text_widget.get(ranges[0], ranges[1]) if ranges else ""
+        except Exception:
+            selected = ""
+
+        def _on_start(initial: str, options: SequenceOptions) -> None:
+            # Create the single manager here and initialize clipboard
+            self._seq_manager = ClipboardSequenceManager()
+            first = self._seq_manager.set_initial(initial, options)
+            with contextlib.suppress(Exception):
+                self.clipboard_clear()
+                self.clipboard_append(first)
+            # Start listening for global paste after clipboard is seeded
+            self._global_paste.start(self._on_global_paste)
+
+        QuickPasteWindow(self, selected, _on_start)
+        return "break"
+
+    def _on_global_paste(self) -> None:
+        # Called from background thread in pynput; schedule back to Tk main thread
+        def _process():
+            if not self._seq_manager:
+                self._global_paste.stop()
+                return
+            try:
+                cur = self.clipboard_get()
+            except Exception:
+                cur = ""
+            nxt = self._seq_manager.on_paste(cur)
+            if nxt is None:
+                # Stop tracking when clipboard diverges
+                self._seq_manager = None
+                self._global_paste.stop()
+                return
+            try:
+                self.clipboard_clear()
+                self.clipboard_append(nxt)
+            except Exception:
+                # Give up if clipboard fails
+                self._seq_manager = None
+                self._global_paste.stop()
+
+        with contextlib.suppress(Exception):
+            self.after(0, _process)
 
     def _init_tree_style(self) -> None:
         with contextlib.suppress(Exception):
@@ -956,6 +1009,8 @@ class MainWindow(tk.Tk):
                 with contextlib.suppress(Exception):
                     self.after_cancel(self._draft_after_id)
             self._save_draft_now()
+        with contextlib.suppress(Exception):
+            self._global_paste.stop()
         with contextlib.suppress(Exception):
             self.draft_service.release_instance_index(self.instance_index)
         with contextlib.suppress(Exception):
