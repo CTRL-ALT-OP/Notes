@@ -66,6 +66,9 @@ class ListAutoFill:
                     text.delete(line_start, line_end)
                     text.insert(line_start, indent)
                     text.mark_set("insert", f"{line_no}.{len(indent)}")
+                    # Ensure the caret stays visible when we handled Return ourselves
+                    with contextlib.suppress(Exception):
+                        text.see("insert")
                     return "break"
                 next_prefix = f"\n{indent}{marker} "
             else:
@@ -76,6 +79,9 @@ class ListAutoFill:
                     text.delete(line_start, line_end)
                     text.insert(line_start, indent)
                     text.mark_set("insert", f"{line_no}.{len(indent)}")
+                    # Ensure the caret stays visible when we handled Return ourselves
+                    with contextlib.suppress(Exception):
+                        text.see("insert")
                     return "break"
                 try:
                     n = int(num)
@@ -85,6 +91,9 @@ class ListAutoFill:
 
             # Default: insert newline + next marker from caret position
             text.insert("insert", next_prefix)
+            # Auto-scroll to keep the caret visible when adding a new list item
+            with contextlib.suppress(Exception):
+                text.see("insert")
             # If we inserted an ordered-list item, renumber following same-level items
             if mol:
                 with contextlib.suppress(Exception):
