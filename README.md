@@ -29,6 +29,11 @@ Dark‑themed Tkinter markdown editor with live highlighting, drafts, a simple c
 - File operations: Open, Save, Save As; rename/delete from sidebar. Files default to `.md`; titles derive from filenames.
 - Links: `http/https/mailto` open via a browser; filesystem paths open in the OS. `.py` files open and run in a new terminal.
 - Shortcuts: Ctrl+S save, Ctrl+O open, Ctrl+N new, Ctrl+B toggle sidebar.
+  - Ctrl+Q opens Quick Paste overlay: seed text, then paste repeatedly anywhere.
+    - Options: Auto-incr, Ordinal-only, Replace tags, Incr text (all on by default)
+      - Replaces tags like `{min}` (current minute)
+      - Auto-incr increments numbers each paste; with Ordinal-only, skips cardinal words
+      - Incr text toggles whether textual numbers (e.g., one/first) are incremented
 
 ### Project layout (key modules)
 - `app/ui/main_window.py` — main window, editor, sidebar, menus
