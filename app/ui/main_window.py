@@ -383,8 +383,17 @@ class MainWindow(tk.Tk):
                 self.clipboard_append(first)
             # Start listening for global paste after clipboard is seeded
             self._global_paste.start(self._on_global_paste)
+            # Dismiss overlay if present
+            with contextlib.suppress(Exception):
+                if hasattr(self, "_quick_overlay") and self._quick_overlay is not None:
+                    self._quick_overlay.destroy()
+                    self._quick_overlay = None
 
-        QuickPasteWindow(self, selected, _on_start)
+        # Create overlay centered over the editor area
+        with contextlib.suppress(Exception):
+            if hasattr(self, "_quick_overlay") and self._quick_overlay is not None:
+                self._quick_overlay.destroy()
+        self._quick_overlay = QuickPasteWindow(self.text_widget, selected, _on_start)
         return "break"
 
     def _on_global_paste(self) -> None:
