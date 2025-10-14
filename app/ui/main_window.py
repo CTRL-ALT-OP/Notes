@@ -1003,11 +1003,14 @@ class MainWindow(tk.Tk):
 
     def _set_clipboard_text(self, text: str) -> None:
         # Make clipboard updates more reliable on Windows by flushing Tk events.
-        self.clipboard_clear()
-        self.clipboard_append(text)
-        with contextlib.suppress(Exception):
-            self.update_idletasks()
-            self.update()
+        def _update():
+            self.clipboard_clear()
+            self.clipboard_append(text)
+            with contextlib.suppress(Exception):
+                self.update_idletasks()
+                self.update()
+
+        self.after(100, _update)
 
     def on_open(self) -> None:
         file_path = filedialog.askopenfilename(
