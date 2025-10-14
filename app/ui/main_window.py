@@ -406,7 +406,6 @@ class MainWindow(tk.Tk):
             except Exception:
                 cur = ""
             decision = self._clipboard.compute_next_clipboard(cur)
-            print("decision", decision)
             if decision.next_text is not None:
                 with contextlib.suppress(Exception):
                     self._set_clipboard_text(decision.next_text)
