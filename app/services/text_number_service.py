@@ -80,9 +80,7 @@ class TextNumberIncrementer:
             new_num = num + 1
             if suffix:
                 return f"{new_num}{self._ordinal_suffix(new_num)}"
-            if ordinal_only:
-                return str(new_num)
-            return str(new_num)
+            return str(new_num) if ordinal_only else str(new_num)
 
         return self._re_number.sub(repl, text)
 
@@ -133,9 +131,7 @@ class TextNumberIncrementer:
             return "st"
         if last == 2:
             return "nd"
-        if last == 3:
-            return "rd"
-        return "th"
+        return "rd" if last == 3 else "th"
 
     @staticmethod
     def _cardinal_word(n: int) -> str:
@@ -155,6 +151,4 @@ class TextNumberIncrementer:
     def _case_like(sample: str, replacement: str) -> str:
         if sample.isupper():
             return replacement.upper()
-        if sample[0].isupper():
-            return replacement.capitalize()
-        return replacement
+        return replacement.capitalize() if sample[0].isupper() else replacement
