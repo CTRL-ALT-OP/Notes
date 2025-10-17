@@ -61,9 +61,7 @@ class MarkdownHighlighter:
         # Precompile patterns
         self._re_heading = re.compile(r"^(#{1,6})[\t ]+(.+)$", re.MULTILINE)
         self._re_bold = re.compile(r"(\*\*|__)([^\n]+?)\1")
-        self._re_italic = re.compile(
-            r"(?<!\*)\*([^\n*]+?)\*(?!\*)|(?<!_)_([^\n_]+?)_(?!_)"
-        )
+        self._re_italic = re.compile(r"(?<!\*)\*([^\n*]+?)\*(?!\*)")
         self._re_bold_italic = re.compile(r"(\*\*\*|___)([^\n]+?)\1")
         self._re_strike = re.compile(r"~~([^\n]+?)~~")
         self._re_inline_code = re.compile(r"`([^`\n]+?)`")
