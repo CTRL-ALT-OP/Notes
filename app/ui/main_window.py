@@ -26,6 +26,7 @@ from app.ui.quick_paste_window import QuickPasteWindow
 from app.services.clipboard_sequence import SequenceOptions
 from app.services.clipboard_service import ClipboardService
 from app.services.global_paste_listener import GlobalPasteListener
+from app.services.global_macro_recorder import GlobalMacroRecorder
 
 
 class MainWindow(tk.Tk):
@@ -54,9 +55,11 @@ class MainWindow(tk.Tk):
         self._highlight_after_id: Optional[str] = None
         self._dropdown: Optional[tk.Toplevel] = None
         self._draft_after_id: Optional[str] = None
+        self._status_poll_after_id: Optional[str] = None
         self.catalog = CatalogService()
         self._global_paste = GlobalPasteListener()
         self._clipboard = ClipboardService()
+        self._global_macro = GlobalMacroRecorder()
 
         # Sidebar/Tree state
         self.sidebar_width = 150
@@ -99,6 +102,13 @@ class MainWindow(tk.Tk):
 
         # Ensure we handle window close to persist draft and release index
         self.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        # Start global macro recorder (no-op if dependency missing)
+        with contextlib.suppress(Exception):
+            self._global_macro.start()
+
+        # Periodically refresh status indicators (list paste / macro recording)
+        self._schedule_status_poll()
 
         # Key bindings
         self.bind("<Control-s>", lambda e: self.on_save())
@@ -891,6 +901,35 @@ class MainWindow(tk.Tk):
         with contextlib.suppress(Exception):
             self.status_label.configure(text=status)
 
+    def _refresh_status_indicators(self) -> None:
+        parts = []
+        try:
+            if self._clipboard.list_paste_active:
+                parts.append("List paste")
+        except Exception:
+            pass
+        try:
+            if getattr(self._global_macro, "is_recording", False):
+                parts.append("Recording")
+        except Exception:
+            pass
+        text = " • ".join(parts)
+        with contextlib.suppress(Exception):
+            self.status_right_label.configure(text=text)
+
+    def _schedule_status_poll(self) -> None:
+        # Poll for changes in background-driven states (macro recorder)
+        if self._status_poll_after_id is not None:
+            with contextlib.suppress(Exception):
+                self.after_cancel(self._status_poll_after_id)
+
+        def _tick():
+            self._refresh_status_indicators()
+            self._status_poll_after_id = self.after(300, _tick)
+
+        # Kick off immediately
+        _tick()
+
     def _schedule_draft_save(self) -> None:
         if self._draft_after_id is not None:
             with contextlib.suppress(Exception):
@@ -941,9 +980,8 @@ class MainWindow(tk.Tk):
     # Removed individual list paste handlers; managed by ClipboardService
 
     def _update_list_paste_label(self) -> None:
-        text = "List paste" if self._clipboard.list_paste_active else ""
-        with contextlib.suppress(Exception):
-            self.status_right_label.configure(text=text)
+        # Delegate to unified status indicator composer
+        self._refresh_status_indicators()
 
     # Parsing moved to ClipboardService.parse_list_items
 
@@ -1069,7 +1107,12 @@ class MainWindow(tk.Tk):
                     self.after_cancel(self._draft_after_id)
             self._save_draft_now()
         with contextlib.suppress(Exception):
+            if self._status_poll_after_id is not None:
+                self.after_cancel(self._status_poll_after_id)
+        with contextlib.suppress(Exception):
             self._global_paste.stop()
+        with contextlib.suppress(Exception):
+            self._global_macro.stop()
         with contextlib.suppress(Exception):
             self.draft_service.release_instance_index(self.instance_index)
         with contextlib.suppress(Exception):
