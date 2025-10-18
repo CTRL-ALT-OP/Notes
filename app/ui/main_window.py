@@ -23,6 +23,7 @@ from app.ui.theme import (
     apply_windows_dark_title_bar,
 )
 from app.ui.quick_paste_window import QuickPasteWindow
+from app.ui.find_replace_window import FindReplaceWindow
 from app.services.clipboard_sequence import SequenceOptions
 from app.services.clipboard_service import ClipboardService
 from app.services.global_paste_listener import GlobalPasteListener
@@ -60,6 +61,14 @@ class MainWindow(tk.Tk):
         self._global_paste = GlobalPasteListener()
         self._clipboard = ClipboardService()
         self._global_macro = GlobalMacroRecorder()
+
+        # Find/Replace state
+        self._find_overlay: Optional[FindReplaceWindow] = None
+        self._find_query: str = ""
+        self._find_match_case: bool = False
+        self._find_use_wildcards: bool = True
+        self._find_matches: list[tuple[int, int]] = []  # character offsets
+        self._find_active_index: Optional[int] = None
 
         # Sidebar/Tree state
         self.sidebar_width = 150
@@ -116,6 +125,7 @@ class MainWindow(tk.Tk):
         self.bind("<Control-n>", lambda e: self.on_new())
         self.bind("<Control-b>", lambda e: self._toggle_sidebar())
         self.bind("<Control-q>", lambda e: self._open_quick_paste())
+        self.bind("<Control-f>", lambda e: self._open_find_replace())
         # Ctrl+L toggles List paste mode
         self.bind("<Control-l>", lambda e: self._toggle_list_paste())
         self.bind("<Control-L>", lambda e: self._toggle_list_paste())
@@ -407,6 +417,200 @@ class MainWindow(tk.Tk):
                 self._quick_overlay.destroy()
         self._quick_overlay = QuickPasteWindow(self.text_widget, selected, _on_start)
         return "break"
+
+    # ---------- Find/Replace ----------
+    def _open_find_replace(self) -> str | None:
+        try:
+            ranges = self.text_widget.tag_ranges("sel")
+            selected = self.text_widget.get(ranges[0], ranges[1]) if ranges else ""
+        except Exception:
+            selected = ""
+
+        with contextlib.suppress(Exception):
+            if self._find_overlay is not None:
+                self._find_overlay.destroy()
+        self._find_overlay = FindReplaceWindow(
+            self.text_widget,
+            initial_find=selected,
+            on_change=self._on_find_change,
+            on_scrub_up=self._on_find_scrub_up,
+            on_scrub_down=self._on_find_scrub_down,
+            on_replace_next=self._on_find_replace_next,
+            on_replace_all=self._on_find_replace_all,
+            on_close=self._on_find_close,
+        )
+        return "break"
+
+    def _on_find_close(self) -> None:
+        self._find_overlay = None
+        self._find_query = ""
+        self._find_matches.clear()
+        self._find_active_index = None
+        with contextlib.suppress(Exception):
+            self.text_widget.tag_remove("md_find_match", "1.0", tk.END)
+
+    def _ensure_find_tag(self) -> None:
+        with contextlib.suppress(Exception):
+            self.text_widget.tag_config(
+                "md_find_match",
+                background="#f59e0b",
+                foreground="#111827",
+            )
+            self.text_widget.tag_raise("md_find_match")
+            self.text_widget.tag_raise("sel")
+
+    def _on_find_change(self, query: str, match_case: bool, wildcards: bool) -> None:
+        self._find_query = query or ""
+        self._find_match_case = bool(match_case)
+        self._find_use_wildcards = bool(wildcards)
+        self._find_active_index = None
+        self._apply_find_highlights()
+
+    def _apply_find_highlights(self) -> None:
+        self._ensure_find_tag()
+        with contextlib.suppress(Exception):
+            self.text_widget.tag_remove("md_find_match", "1.0", tk.END)
+        if not self._find_query:
+            self._find_matches = []
+            return
+
+        try:
+            content = self.text_widget.get("1.0", tk.END)
+        except Exception:
+            content = ""
+
+        self._find_matches = self._compute_matches(
+            content,
+            self._find_query,
+            self._find_match_case,
+            self._find_use_wildcards,
+        )
+        for start, end in self._find_matches:
+            with contextlib.suppress(Exception):
+                self.text_widget.tag_add(
+                    "md_find_match", self._idx_chars(start), self._idx_chars(end)
+                )
+        with contextlib.suppress(Exception):
+            self.text_widget.tag_raise("md_find_match")
+            self.text_widget.tag_raise("sel")
+
+    def _idx_chars(self, char_index: int) -> str:
+        return f"1.0+{char_index}c"
+
+    def _compute_matches(
+        self, content: str, needle: str, match_case: bool, wildcards: bool
+    ) -> list[tuple[int, int]]:
+        import re
+
+        if not needle:
+            return []
+        if wildcards:
+            pattern = re.escape(needle)
+            pattern = pattern.replace(r"\*", ".*").replace(r"\?", ".")
+            flags = 0 if match_case else re.IGNORECASE
+            try:
+                regex = re.compile(pattern, flags)
+            except Exception:
+                return []
+            return [(m.start(), m.end()) for m in regex.finditer(content)]
+        hay = content if match_case else content.lower()
+        ndl = needle if match_case else needle.lower()
+        res: list[tuple[int, int]] = []
+        i = 0
+        n = len(needle)
+        if n == 0:
+            return []
+        while True:
+            idx = hay.find(ndl, i)
+            if idx == -1:
+                break
+            res.append((idx, idx + n))
+            i = idx + max(1, n)
+        return res
+
+    def _nearest_match_index(self, forward: bool) -> Optional[int]:
+        if not self._find_matches:
+            return None
+        try:
+            insert_index = self.text_widget.index("insert")
+        except Exception:
+            insert_index = "1.0"
+        try:
+            count = tk.IntVar(value=0)
+            self.text_widget.count("1.0", insert_index, "chars", count)
+            pos = int(count.get())
+        except Exception:
+            pos = 0
+        if forward:
+            for i, (s, _e) in enumerate(self._find_matches):
+                if s > pos:
+                    return i
+            return 0
+        else:
+            for i in range(len(self._find_matches) - 1, -1, -1):
+                if self._find_matches[i][0] < pos:
+                    return i
+            return len(self._find_matches) - 1
+
+    def _select_match_index(self, idx: int) -> None:
+        if idx < 0 or idx >= len(self._find_matches):
+            return
+        self._find_active_index = idx
+        s, e = self._find_matches[idx]
+        start_idx = self._idx_chars(s)
+        end_idx = self._idx_chars(e)
+        with contextlib.suppress(Exception):
+            self.text_widget.tag_remove("sel", "1.0", tk.END)
+            self.text_widget.tag_add("sel", start_idx, end_idx)
+            self.text_widget.mark_set("insert", end_idx)
+            self.text_widget.see(start_idx)
+
+    def _on_find_scrub_down(self) -> None:
+        if not self._find_matches:
+            return
+        if self._find_active_index is None:
+            idx = self._nearest_match_index(forward=True)
+        else:
+            idx = (self._find_active_index + 1) % len(self._find_matches)
+        if idx is not None:
+            self._select_match_index(idx)
+
+    def _on_find_scrub_up(self) -> None:
+        if not self._find_matches:
+            return
+        if self._find_active_index is None:
+            idx = self._nearest_match_index(forward=False)
+        else:
+            idx = (self._find_active_index - 1) % len(self._find_matches)
+        if idx is not None:
+            self._select_match_index(idx)
+
+    def _on_find_replace_next(self, repl: str) -> None:
+        if not self._find_matches:
+            return
+        idx = self._find_active_index
+        if idx is None:
+            idx = self._nearest_match_index(forward=True)
+            if idx is None:
+                return
+        s, e = self._find_matches[idx]
+        start_idx = self._idx_chars(s)
+        end_idx = self._idx_chars(e)
+        with contextlib.suppress(Exception):
+            self.text_widget.delete(start_idx, end_idx)
+            self.text_widget.insert(start_idx, repl)
+        self._apply_find_highlights()
+
+    def _on_find_replace_all(self, repl: str) -> None:
+        if not self._find_matches:
+            return
+        for s, e in reversed(self._find_matches):
+            start_idx = self._idx_chars(s)
+            end_idx = self._idx_chars(e)
+            with contextlib.suppress(Exception):
+                self.text_widget.delete(start_idx, end_idx)
+                self.text_widget.insert(start_idx, repl)
+        self._apply_find_highlights()
 
     def _on_global_paste(self) -> None:
         # Called from background thread in pynput; schedule back to Tk main thread
@@ -781,6 +985,8 @@ class MainWindow(tk.Tk):
     def _apply_highlighting(self) -> None:
         self.highlighter.highlight(self.text_widget)
         self._bind_highlighter_interactions()
+        # Re-apply find highlights above markdown tags
+        self._apply_find_highlights()
         self._highlight_after_id = None
 
     def _bind_highlighter_interactions(self) -> None:
