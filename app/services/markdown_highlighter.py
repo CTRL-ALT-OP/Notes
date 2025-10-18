@@ -60,7 +60,8 @@ class MarkdownHighlighter:
 
         # Precompile patterns
         self._re_heading = re.compile(r"^(#{1,6})[\t ]+(.+)$", re.MULTILINE)
-        self._re_bold = re.compile(r"(\*\*|__)([^\n]+?)\1")
+        self._re_quote = re.compile(r"\"([^\n]+?)\"")
+        self._re_bold = re.compile(r"(\*\*)([^\n]+?)\1")
         self._re_italic = re.compile(r"(?<!\*)\*([^\n*]+?)\*(?!\*)")
         self._re_bold_italic = re.compile(r"(\*\*\*|___)([^\n]+?)\1")
         self._re_strike = re.compile(r"~~([^\n]+?)~~")
@@ -70,6 +71,12 @@ class MarkdownHighlighter:
             re.MULTILINE,
         )
         self._re_blockquote = re.compile(r"^>[\t ]?.*$", re.MULTILINE)
+        # Numeric values: integers, comma-grouped, and decimals (including leading .5)
+        self._re_number = re.compile(
+            r"(?<!\w)(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?(?!\w)|(?<![\w.])\.\d+(?!\w)"
+        )
+        # Bracketed text not part of a Markdown link (no immediate opening paren after ])
+        self._re_brackets = re.compile(r"\[([^\]\n]+)\](?!\()")
         # Granular list patterns: unordered and ordered, with named groups
         self._re_ul = re.compile(
             r"^(?P<indent>[\t ]*)(?P<marker>[-*+])[\t ]+(?P<text>.+)$",
@@ -95,6 +102,7 @@ class MarkdownHighlighter:
             "md_h5_italic",
             "md_h6_italic",
             "md_bold",
+            "md_quote",
             "md_italic",
             "md_bold_italic",
             "md_strike",
@@ -126,6 +134,9 @@ class MarkdownHighlighter:
             "md_code_func",
             "md_code_class",
             "md_code_deco",
+            # Highlights
+            "md_number",
+            "md_brackets",
         ]
 
     def _idx(self, char_index: int) -> str:
@@ -155,6 +166,17 @@ class MarkdownHighlighter:
             if family:
                 f.configure(family=family)
             return f
+
+        # Resolve a highlight color with graceful fallback for custom themes
+        try:
+            highlight_color = getattr(self.theme, "highlight_fg")
+        except Exception:
+            highlight_color = None
+        if not highlight_color:
+            try:
+                highlight_color = getattr(self.theme, "link_text_fg")
+            except Exception:
+                highlight_color = "#f59e0b"
 
         # Headings
         text.tag_config(
@@ -221,6 +243,10 @@ class MarkdownHighlighter:
         text.tag_config("md_code_class", foreground=self.theme.code_class_fg)
         text.tag_config("md_code_deco", foreground=self.theme.code_deco_fg)
 
+        text.tag_config("md_highlight", foreground=highlight_color)
+        text.tag_config("md_number", foreground=highlight_color)
+        text.tag_config("md_brackets", foreground=highlight_color)
+
         # Block elements
         text.tag_config(
             "md_blockquote",
@@ -274,6 +300,12 @@ class MarkdownHighlighter:
         )
         text.tag_config("md_h6_italic", font=mk_font(weight="bold", slant="italic"))
 
+        # Adjust tag priorities so inline quote color isn't overridden by list items
+        with contextlib.suppress(Exception):
+            # Ensure inline quotes render above list item foreground color
+            text.tag_raise("md_highlight", "md_list_item")
+            text.tag_raise("md_number", "md_list_item")
+            text.tag_raise("md_brackets", "md_list_item")
         # Ensure selection highlight appears over any markdown backgrounds
         with contextlib.suppress(Exception):
             text.tag_raise("sel")
@@ -394,6 +426,12 @@ class MarkdownHighlighter:
         return bold_spans, italic_spans
 
     def _highlight_misc_inline(self, text: tk.Text, content: str) -> None:
+        for m in self._re_quote.finditer(content):
+            self._apply_span(text, "md_highlight", m.start(1), m.end(1))
+        for m in self._re_brackets.finditer(content):
+            self._apply_span(text, "md_brackets", m.start(1), m.end(1))
+        for m in self._re_number.finditer(content):
+            self._apply_span(text, "md_number", m.start(), m.end())
         for m in self._re_strike.finditer(content):
             self._apply_span(text, "md_strike", m.start(1), m.end(1))
         for m in self._re_inline_code.finditer(content):

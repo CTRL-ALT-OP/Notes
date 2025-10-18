@@ -28,6 +28,7 @@ class ThemeColors:
     inline_code_bg: str
     code_block_bg: str
     blockquote_fg: str
+    highlight_fg: str
     list_item_fg: str
     link_text_fg: str
     link_url_fg: str
@@ -77,6 +78,7 @@ DARK_THEME = ThemeColors(
     code_func_fg="#93c5fd",  # blue-300
     code_class_fg="#fca5a5",  # red-300
     code_deco_fg="#d8b4fe",  # purple-300
+    highlight_fg="#f59e0b",  # amber-400
 )
 
 
