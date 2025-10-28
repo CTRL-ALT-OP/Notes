@@ -113,16 +113,30 @@ class GlobalMacroRecorder:
             filtered_events = [
                 (0.39170859998557717, "release", keyboard.Key.ctrl),
             ]
-            for event in events:
-                if event[1] == "press":
-                    for matching_event in events:
+            for idx, event in enumerate(events):  # Filter out unpaired hotkeys
+                if (
+                    event[1] == "press"
+                ):  # If the event is a press, find the matching release
+                    for matching_event in events[
+                        idx + 1 :
+                    ]:  # Search ahead of the current event
                         if (
                             matching_event[1] == "release"
                             and matching_event[2] == event[2]
                         ):
                             filtered_events.append(event)
-                            filtered_events.append(matching_event)
                             break
+                else:  # If the event is a release, find the matching press
+                    for matching_event in events[
+                        :idx
+                    ]:  # Search behind the current event
+                        if (
+                            matching_event[1] == "press"
+                            and matching_event[2] == event[2]
+                        ):
+                            filtered_events.append(event)
+                            break
+            print(events, filtered_events)
             return filtered_events
 
         self._events = _filter_unpaired_hotkeys(self._events)
