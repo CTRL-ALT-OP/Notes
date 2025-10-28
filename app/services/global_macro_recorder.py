@@ -136,7 +136,6 @@ class GlobalMacroRecorder:
                         ):
                             filtered_events.append(event)
                             break
-            print(events, filtered_events)
             return filtered_events
 
         self._events = _filter_unpaired_hotkeys(self._events)
