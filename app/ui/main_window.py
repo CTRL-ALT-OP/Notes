@@ -63,6 +63,7 @@ class MainWindow(tk.Tk):
         self._global_paste = GlobalPasteListener()
         self._clipboard = ClipboardService()
         self._global_macro = GlobalMacroRecorder()
+        self._global_paste_failed = False
 
         # Find/Replace state
         self._find_overlay: Optional[FindReplaceWindow] = None
@@ -1277,9 +1278,35 @@ class MainWindow(tk.Tk):
             return "break"
         with contextlib.suppress(Exception):
             self._set_clipboard_text(first)
-        self._global_paste.start(self._on_global_paste)
+        if not self._start_global_paste_listener():
+            # If listener fails (e.g., permissions on macOS), abort list mode gracefully
+            self._clipboard.stop_list_paste()
+            self._update_list_paste_label()
+            return "break"
         self._update_list_paste_label()
         return "break"
+
+    def _start_global_paste_listener(self) -> bool:
+        """Start the global paste listener with defensive guards.
+
+        On some macOS setups, low-level keyboard hooks can raise or be blocked by
+        permissions, which would otherwise crash the app. If we fail once, avoid
+        retrying and fall back to manual paste without crashing.
+        """
+        if self._global_paste_failed:
+            return False
+        try:
+            self._global_paste.start(self._on_global_paste)
+            return True
+        except Exception as exc:
+            self._global_paste_failed = True
+            with contextlib.suppress(Exception):
+                messagebox.showerror(
+                    "List Paste Unavailable",
+                    "Could not start the global paste listener on this system.\n"
+                    "List paste was stopped to avoid a crash. You can still paste manually.",
+                )
+            return False
 
     # Removed individual list paste handlers; managed by ClipboardService
 
