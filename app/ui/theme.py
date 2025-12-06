@@ -46,6 +46,8 @@ class ThemeColors:
     code_class_fg: str
     code_deco_fg: str
 
+    font: TK.Font
+
 
 # Slightly muted dark theme
 # Slightly muted dark theme
@@ -79,6 +81,7 @@ DARK_THEME = ThemeColors(
     code_class_fg="#fca5a5",  # red-300
     code_deco_fg="#d8b4fe",  # purple-300
     highlight_fg="#f59e0b",  # amber-400
+    font=("Courier New", 11),
 )
 
 

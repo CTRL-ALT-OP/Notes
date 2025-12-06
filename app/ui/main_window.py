@@ -2,6 +2,7 @@ from __future__ import annotations
 import contextlib
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
+import tkinter.font as tkfont
 import threading
 from tkinter import ttk
 from pathlib import Path
@@ -378,6 +379,7 @@ class MainWindow(tk.Tk):
             editor_frame,
             wrap=tk.WORD,
             undo=True,
+            font=tkfont.Font(family=self.theme.font[0], size=self.theme.font[1]),
             bg=self.theme.background,
             fg=self.theme.foreground,
             insertbackground=self.theme.caret,
@@ -461,8 +463,8 @@ class MainWindow(tk.Tk):
 
     def _on_find_change(self, query: str, match_case: bool, wildcards: bool) -> None:
         self._find_query = query or ""
-        self._find_match_case = bool(match_case)
-        self._find_use_wildcards = bool(wildcards)
+        self._find_match_case = match_case
+        self._find_use_wildcards = wildcards
         self._find_active_index = None
         self._apply_find_highlights()
 
@@ -527,6 +529,57 @@ class MainWindow(tk.Tk):
             res.append((idx, idx + n))
             i = idx + max(1, n)
         return res
+
+    # Build a regex from the current find query. When capture=True, '*' and '?'
+    # are turned into capturing groups so we can reuse their values in replace.
+    def _build_find_regex(self, capture: bool) -> Optional["re.Pattern[str]"]:
+        import re
+
+        needle = self._find_query
+        if not needle:
+            return None
+        pattern = re.escape(needle)
+        if self._find_use_wildcards:
+            if capture:
+                pattern = pattern.replace(r"\*", "(.*)").replace(r"\?", "(.)")
+            else:
+                pattern = pattern.replace(r"\*", ".*").replace(r"\?", ".")
+        flags = 0 if self._find_match_case else re.IGNORECASE
+        try:
+            return re.compile(pattern, flags)
+        except Exception:
+            return None
+
+    # Expand a replacement template by substituting '*' and '?' with the
+    # corresponding captured wildcard groups (left-to-right). Supports escaping
+    # with backslash to insert literal '*' or '?'.
+    def _expand_replacement(self, template: str, groups: list[str], wildcards: bool) -> str:
+        if not wildcards or not template:
+            return template
+        result_chars: list[str] = []
+        gi = 0
+        i = 0
+        while i < len(template):
+            ch = template[i]
+            # Handle escapes for literal * and ?
+            if ch == "\\" and i + 1 < len(template):
+                nxt = template[i + 1]
+                if nxt in ("*", "?", "\\"):
+                    result_chars.append(nxt)
+                    i += 2
+                    continue
+            if ch in ("*", "?"):
+                if gi < len(groups):
+                    result_chars.append(groups[gi])
+                    gi += 1
+                else:
+                    # No corresponding captured group; keep as literal
+                    result_chars.append(ch)
+                i += 1
+                continue
+            result_chars.append(ch)
+            i += 1
+        return "".join(result_chars)
 
     def _nearest_match_index(self, forward: bool) -> Optional[int]:
         if not self._find_matches:
@@ -596,20 +649,58 @@ class MainWindow(tk.Tk):
         s, e = self._find_matches[idx]
         start_idx = self._idx_chars(s)
         end_idx = self._idx_chars(e)
+        # Compute replacement text with wildcard back-references
+        replacement_text = repl
+        try:
+            segment = self.text_widget.get(start_idx, end_idx)
+        except Exception:
+            segment = ""
+        regex = self._build_find_regex(capture=True)
+        if regex is not None:
+            with contextlib.suppress(Exception):
+                m = regex.fullmatch(segment)
+                if m:
+                    groups = list(m.groups())
+                    replacement_text = self._expand_replacement(
+                        repl, groups, self._find_use_wildcards
+                    )
+                else:
+                    replacement_text = self._expand_replacement(
+                        repl, [], self._find_use_wildcards
+                    )
         with contextlib.suppress(Exception):
             self.text_widget.delete(start_idx, end_idx)
-            self.text_widget.insert(start_idx, repl)
+            self.text_widget.insert(start_idx, replacement_text)
         self._apply_find_highlights()
 
     def _on_find_replace_all(self, repl: str) -> None:
         if not self._find_matches:
             return
+        regex = self._build_find_regex(capture=True)
         for s, e in reversed(self._find_matches):
             start_idx = self._idx_chars(s)
             end_idx = self._idx_chars(e)
+            # Determine replacement for this specific match using captured groups
+            replacement_text = repl
+            if regex is not None:
+                try:
+                    segment = self.text_widget.get(start_idx, end_idx)
+                except Exception:
+                    segment = ""
+                with contextlib.suppress(Exception):
+                    m = regex.fullmatch(segment)
+                    if m:
+                        groups = list(m.groups())
+                        replacement_text = self._expand_replacement(
+                            repl, groups, self._find_use_wildcards
+                        )
+                    else:
+                        replacement_text = self._expand_replacement(
+                            repl, [], self._find_use_wildcards
+                        )
             with contextlib.suppress(Exception):
                 self.text_widget.delete(start_idx, end_idx)
-                self.text_widget.insert(start_idx, repl)
+                self.text_widget.insert(start_idx, replacement_text)
         self._apply_find_highlights()
 
     def _on_global_paste(self) -> None:

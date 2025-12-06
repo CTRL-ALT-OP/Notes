@@ -39,7 +39,7 @@ class GlobalPasteListener:
             )
             # macOS support; harmless on Windows
             self._hk_cmd_v = keyboard.HotKey(
-                keyboard.HotKey.parse("<cmd>+v"), self._invoke
+                keyboard.HotKey.parse("<Mod1>+v"), self._invoke
             )
 
             def on_press(key):  # type: ignore[no-redef]

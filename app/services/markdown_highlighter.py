@@ -147,7 +147,8 @@ class MarkdownHighlighter:
         if self._configured_widget_id == id(text):
             return
 
-        base_font = tkfont.nametofont(text.cget("font")).copy()
+        base_font_value = text.cget("font")
+        base_font = tkfont.Font(font=base_font_value)
         base_size = int(base_font.cget("size"))
 
         def mk_font(
