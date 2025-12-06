@@ -1297,6 +1297,11 @@ class MainWindow(tk.Tk):
             return False
         try:
             self._global_paste.start(self._on_global_paste)
+            if sys.platform == "darwin" and not getattr(
+                self._global_paste, "_proc", None
+            ):
+                # Subprocess failed to spawn; treat as failure
+                raise RuntimeError("macOS paste listener process not running")
             return True
         except Exception as exc:
             self._global_paste_failed = True
