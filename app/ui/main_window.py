@@ -1,5 +1,6 @@
 from __future__ import annotations
 import contextlib
+import sys
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 import tkinter.font as tkfont
@@ -127,9 +128,13 @@ class MainWindow(tk.Tk):
         self.bind("<Control-b>", lambda e: self._toggle_sidebar())
         self.bind("<Control-q>", lambda e: self._open_quick_paste())
         self.bind("<Control-f>", lambda e: self._open_find_replace())
-        # Ctrl+L toggles List paste mode
-        self.bind("<Control-l>", lambda e: self._toggle_list_paste())
-        self.bind("<Control-L>", lambda e: self._toggle_list_paste())
+        # List paste toggle: use Command+L on macOS to avoid terminal Ctrl+L conflicts
+        if sys.platform == "darwin":
+            self.bind("<Command-l>", lambda e: self._toggle_list_paste())
+            self.bind("<Command-L>", lambda e: self._toggle_list_paste())
+        else:
+            self.bind("<Control-l>", lambda e: self._toggle_list_paste())
+            self.bind("<Control-L>", lambda e: self._toggle_list_paste())
 
     def _build_menu(self) -> None:
         # Custom dark menu bar using a Frame + faux button that opens a custom dropdown
@@ -553,7 +558,9 @@ class MainWindow(tk.Tk):
     # Expand a replacement template by substituting '*' and '?' with the
     # corresponding captured wildcard groups (left-to-right). Supports escaping
     # with backslash to insert literal '*' or '?'.
-    def _expand_replacement(self, template: str, groups: list[str], wildcards: bool) -> str:
+    def _expand_replacement(
+        self, template: str, groups: list[str], wildcards: bool
+    ) -> str:
         if not wildcards or not template:
             return template
         result_chars: list[str] = []
